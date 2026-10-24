@@ -1,11 +1,9 @@
 //! 1.19.4: separate enchantment glint textures for items and entities, and a dedicated
 //! slider texture.
 
-use image::RgbaImage;
-
 use crate::error::Result;
 use crate::step::{Context, Step};
-use crate::util::write_png;
+use crate::steps::support::{canvas, save_png, Renamer};
 use crate::version::Version;
 use crate::vfs::Pack;
 
@@ -34,11 +32,20 @@ impl Step for V1_19_4 {
     }
 
     fn upgrade(&self, pack: &mut Pack, ctx: &mut Context) -> Result<()> {
+        let mut kept = false;
         for suffix in ["png", "png.mcmeta"] {
             if let Some(glint) = pack.remove(&format!("{MISC}/enchanted_item_glint.{suffix}")) {
-                pack.insert(format!("{MISC}/enchanted_glint_entity.{suffix}"), glint.clone());
-                pack.insert(format!("{MISC}/enchanted_glint_item.{suffix}"), glint);
+                for kind in ["entity", "item"] {
+                    let path = format!("{MISC}/enchanted_glint_{kind}.{suffix}");
+                    kept |= pack.contains(&path);
+                    if !pack.contains(&path) {
+                        pack.insert(path, glint.clone());
+                    }
+                }
             }
+        }
+        if kept {
+            ctx.warn("an existing enchanted_glint_item/entity texture was kept instead of enchanted_item_glint");
         }
 
         if pack.contains(SLIDER) {
@@ -53,12 +60,16 @@ impl Step for V1_19_4 {
             ));
             return Ok(());
         };
-        let mut slider = RgbaImage::new(widgets.width(), widgets.height());
+        let Some(mut slider) = canvas(ctx, SLIDER, Some(widgets.width()), Some(widgets.height()))
+        else {
+            return Ok(());
+        };
         for (from_y, to_y) in SLIDER_STRIPS {
             let strip: Area = (0, from_y * k, 200 * k, 20 * k);
             copy_area(&mut slider, &widgets, strip, (0, to_y * k), Flip::None);
         }
-        write_png(pack, SLIDER, &slider)
+        save_png(pack, ctx, SLIDER, &slider);
+        Ok(())
     }
 
     fn downgrade(&self, pack: &mut Pack, ctx: &mut Context) -> Result<()> {
@@ -73,13 +84,16 @@ impl Step for V1_19_4 {
         if glint(dropped).is_some_and(|other| Some(other) != glint(kept)) {
             ctx.warn(format!("the {dropped} enchantment glint was dropped: before 1.19.4 items and entities share one texture, taken from the {kept} glint"));
         }
+        let mut renamer = Renamer::default();
         for suffix in ["png", "png.mcmeta"] {
-            pack.rename(
+            renamer.rename(
+                pack,
                 &format!("{MISC}/enchanted_glint_{kept}.{suffix}"),
                 &format!("{MISC}/enchanted_item_glint.{suffix}"),
             );
             pack.remove(&format!("{MISC}/enchanted_glint_{dropped}.{suffix}"));
         }
+        renamer.report(ctx);
 
         // Before 1.19.4 sliders were drawn from widgets.png, which already holds the buttons.
         if pack.remove(SLIDER).is_some() {
@@ -92,7 +106,8 @@ impl Step for V1_19_4 {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::util::read_png;
+    use crate::util::{read_png, write_png};
+    use image::RgbaImage;
     use image::Rgba;
 
     fn ctx() -> Context {

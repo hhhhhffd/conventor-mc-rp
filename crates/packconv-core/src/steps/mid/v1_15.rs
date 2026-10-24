@@ -8,7 +8,7 @@ use serde::Deserialize;
 
 use crate::error::Result;
 use crate::step::{Context, Step};
-use crate::util::write_png;
+use crate::steps::support::{canvas, save_png, Renamer};
 use crate::version::Version;
 use crate::vfs::Pack;
 
@@ -52,10 +52,15 @@ fn chests() -> &'static Chests {
 
 impl Layout {
     /// Runs the copies from the old layout (`src`) into a fresh new-layout texture.
-    fn forward(&self, src: &RgbaImage, k: u32) -> RgbaImage {
-        let mut out = RgbaImage::new(self.out.0 * k, self.out.1 * k);
+    fn forward(&self, ctx: &mut Context, path: &str, src: &RgbaImage, k: u32) -> Option<RgbaImage> {
+        let mut out = canvas(ctx, path, self.out.0.checked_mul(k), self.out.1.checked_mul(k))?;
         self.run(src, &mut out, k, false);
-        out
+        Some(out)
+    }
+
+    /// An empty old-layout texture for [`Layout::backward`].
+    fn old_canvas(&self, ctx: &mut Context, path: &str, k: u32) -> Option<RgbaImage> {
+        canvas(ctx, path, self.design.0.checked_mul(k), self.design.1.checked_mul(k))
     }
 
     /// Runs the copies backwards, from the new layout (`src`) into `dst` (the old layout).
@@ -106,17 +111,14 @@ impl Step for V1_15 {
                 ));
                 continue;
             };
-            write_png(
-                pack,
-                &format!("{CHEST_DIR}/{name}_left.png"),
-                &layouts.double_left.forward(&double, k),
-            )?;
-            write_png(
-                pack,
-                &format!("{CHEST_DIR}/{name}_right.png"),
-                &layouts.double_right.forward(&double, k),
-            )?;
-            pack.remove(&path);
+            let (left_path, right_path) =
+                (format!("{CHEST_DIR}/{name}_left.png"), format!("{CHEST_DIR}/{name}_right.png"));
+            let left = layouts.double_left.forward(ctx, &left_path, &double, k);
+            let right = layouts.double_right.forward(ctx, &right_path, &double, k);
+            let (Some(left), Some(right)) = (left, right) else { continue };
+            if save_png(pack, ctx, &left_path, &left) && save_png(pack, ctx, &right_path, &right) {
+                pack.remove(&path);
+            }
         }
         for name in SINGLE {
             let path = format!("{CHEST_DIR}/{name}.png");
@@ -129,7 +131,9 @@ impl Step for V1_15 {
                 ));
                 continue;
             };
-            write_png(pack, &path, &layouts.single.forward(&chest, k))?;
+            if let Some(converted) = layouts.single.forward(ctx, &path, &chest, k) {
+                save_png(pack, ctx, &path, &converted);
+            }
         }
 
         if let Some(mut glint) = load_png(pack, GLINT, ctx) {
@@ -140,10 +144,12 @@ impl Step for V1_15 {
                     *channel = (grey * tint / 255) as u8;
                 }
             }
-            write_png(pack, GLINT, &glint)?;
+            save_png(pack, ctx, GLINT, &glint);
         }
 
-        move_texture(pack, "entity/iron_golem", "entity/iron_golem/iron_golem");
+        let mut renamer = Renamer::default();
+        move_texture(pack, &mut renamer, "entity/iron_golem", "entity/iron_golem/iron_golem");
+        renamer.report(ctx);
         Ok(())
     }
 
@@ -165,13 +171,16 @@ impl Step for V1_15 {
                 ctx.warn(format!("{CHEST_DIR}/{name}: the halves have different or unexpected sizes; left unconverted"));
                 continue;
             };
-            let (w, h) = layouts.double_left.design;
-            let mut double = RgbaImage::new(w * k, h * k);
+            let double_path = format!("{CHEST_DIR}/{name}_double.png");
+            let Some(mut double) = layouts.double_left.old_canvas(ctx, &double_path, k) else {
+                continue;
+            };
             layouts.double_left.backward(&left, &mut double, k);
             layouts.double_right.backward(&right, &mut double, k);
-            write_png(pack, &format!("{CHEST_DIR}/{name}_double.png"), &double)?;
-            pack.remove(&left_path);
-            pack.remove(&right_path);
+            if save_png(pack, ctx, &double_path, &double) {
+                pack.remove(&left_path);
+                pack.remove(&right_path);
+            }
         }
         for name in SINGLE {
             let path = format!("{CHEST_DIR}/{name}.png");
@@ -184,10 +193,9 @@ impl Step for V1_15 {
                 ));
                 continue;
             };
-            let (w, h) = layouts.single.design;
-            let mut old = RgbaImage::new(w * k, h * k);
+            let Some(mut old) = layouts.single.old_canvas(ctx, &path, k) else { continue };
             layouts.single.backward(&chest, &mut old, k);
-            write_png(pack, &path, &old)?;
+            save_png(pack, ctx, &path, &old);
         }
 
         if let Some(mut glint) = load_png(pack, GLINT, ctx) {
@@ -199,11 +207,14 @@ impl Step for V1_15 {
                 let grey = ((255 * dot + norm / 2) / norm).min(255) as u8;
                 pixel.0[..3].fill(grey);
             }
-            write_png(pack, GLINT, &glint)?;
-            ctx.warn("the enchantment glint was converted to grey, where 1.14 tints it purple; colours that are not purple are approximated");
+            if save_png(pack, ctx, GLINT, &glint) {
+                ctx.warn("the enchantment glint was converted to grey, where 1.14 tints it purple; colours that are not purple are approximated");
+            }
         }
 
-        move_texture(pack, "entity/iron_golem/iron_golem", "entity/iron_golem");
+        let mut renamer = Renamer::default();
+        move_texture(pack, &mut renamer, "entity/iron_golem/iron_golem", "entity/iron_golem");
+        renamer.report(ctx);
         Ok(())
     }
 }
@@ -211,7 +222,7 @@ impl Step for V1_15 {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::util::read_png;
+    use crate::util::{read_png, write_png};
     use image::Rgba;
 
     fn ctx() -> Context {

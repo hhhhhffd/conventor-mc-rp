@@ -11,6 +11,7 @@ use super::common::{move_textures, parse_pairs, rename_ids, reversed};
 use super::item_defs::{definition_to_overrides, overrides_to_definition, same_model};
 use crate::error::Result;
 use crate::step::{Context, Step};
+use crate::steps::support::Renamer;
 use crate::util::{namespaces, read_json, write_json};
 use crate::version::Version;
 use crate::vfs::Pack;
@@ -34,11 +35,13 @@ impl Step for V1_21_4 {
 
     fn upgrade(&self, pack: &mut Pack, ctx: &mut Context) -> Result<()> {
         let mut notes = BTreeSet::new();
+        let mut renamer = Renamer::default();
         for ns in namespaces(pack) {
             generate_definitions(pack, ctx, &ns, &mut notes);
-            pack.rename_dir(&format!("assets/{ns}/models/equipment"), &format!("assets/{ns}/equipment"));
+            renamer.rename_dir(pack, &format!("assets/{ns}/models/equipment"), &format!("assets/{ns}/equipment"));
         }
-        move_textures(pack, &parse_pairs(SLOT_SPRITES));
+        renamer.report(ctx);
+        move_textures(pack, ctx, &parse_pairs(SLOT_SPRITES));
         rename_ids(pack, ctx, ELYTRA);
         notes.into_iter().for_each(|n| ctx.warn(n));
         Ok(())
@@ -46,11 +49,13 @@ impl Step for V1_21_4 {
 
     fn downgrade(&self, pack: &mut Pack, ctx: &mut Context) -> Result<()> {
         let mut notes = BTreeSet::new();
+        let mut renamer = Renamer::default();
         for ns in namespaces(pack) {
             restore_overrides(pack, ctx, &ns, &mut notes);
-            pack.rename_dir(&format!("assets/{ns}/equipment"), &format!("assets/{ns}/models/equipment"));
+            renamer.rename_dir(pack, &format!("assets/{ns}/equipment"), &format!("assets/{ns}/models/equipment"));
         }
-        move_textures(pack, &reversed(&parse_pairs(SLOT_SPRITES)));
+        renamer.report(ctx);
+        move_textures(pack, ctx, &reversed(&parse_pairs(SLOT_SPRITES)));
         rename_ids(pack, ctx, &reversed(ELYTRA));
         notes.into_iter().for_each(|n| ctx.warn(n));
         Ok(())
@@ -115,7 +120,9 @@ fn generate_definitions(pack: &mut Pack, ctx: &mut Context, ns: &str, notes: &mu
             notes.insert("overrides of builtin/entity item models (shield, banner, trident, ...) cannot be converted to item definitions".into());
             continue;
         }
-        let definition = overrides_to_definition(&name, &format!("{ns}:item/{name}"), &overrides, notes);
+        let Some(definition) = overrides_to_definition(&name, &format!("{ns}:item/{name}"), &overrides, notes) else {
+            continue;
+        };
         write_json(pack, &definition_path, &definition);
         if let Some(fields) = model.as_object_mut() {
             fields.remove("overrides");

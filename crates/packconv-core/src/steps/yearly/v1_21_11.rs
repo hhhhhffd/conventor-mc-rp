@@ -7,7 +7,8 @@ use serde_json::{json, Value};
 use super::common::{move_files, warn_if_shaders, MINECRAFT};
 use crate::error::Result;
 use crate::step::{Context, Step};
-use crate::util::{namespaces, read_json, read_png, write_json, write_png};
+use crate::steps::support::{canvas, load_png, save_png, PixelBudget};
+use crate::util::{namespaces, read_json, write_json};
 use crate::version::Version;
 use crate::vfs::Pack;
 
@@ -52,60 +53,71 @@ fn full(path: &str) -> String {
     format!("{MINECRAFT}{path}")
 }
 
-fn split_moon_sheet(pack: &mut Pack, ctx: &mut Context) -> Result<()> {
+fn split_moon_sheet(pack: &mut Pack, ctx: &mut Context) {
     let sheet_path = full(MOON_SHEET);
-    let sheet = match read_png(pack, &sheet_path) {
-        None => return Ok(()),
-        Some(Err(e)) => {
-            ctx.warn(format!("{e}; moon phases not split"));
-            return Ok(());
-        }
-        Some(Ok(sheet)) => sheet,
-    };
+    let Some(sheet) = load_png(pack, ctx, &sheet_path) else { return };
     let (tile_w, tile_h) = (sheet.width() / SHEET_COLUMNS, sheet.height() / SHEET_ROWS);
     if tile_w == 0 || tile_h == 0 || sheet.width() % SHEET_COLUMNS != 0 || sheet.height() % SHEET_ROWS != 0 {
         ctx.warn(format!("{sheet_path} is not a 4x2 tile sheet; moon phases not split"));
-        return Ok(());
+        return;
     }
+    // The sheet is only removed when every tile exists afterwards.
+    let mut complete = true;
     for (i, name) in (0u32..).zip(MOON_TILES) {
+        let tile_path = full(&moon_tile_path(name));
+        if pack.contains(&tile_path) {
+            continue;
+        }
         let (column, row) = (i % SHEET_COLUMNS, i / SHEET_COLUMNS);
         let tile = imageops::crop_imm(&sheet, column * tile_w, row * tile_h, tile_w, tile_h).to_image();
-        write_png(pack, &full(&moon_tile_path(name)), &tile)?;
+        complete &= save_png(pack, ctx, &tile_path, &tile);
     }
-    pack.remove(&sheet_path);
-    pack.remove(&format!("{sheet_path}.mcmeta"));
-    Ok(())
+    if complete {
+        pack.remove(&sheet_path);
+        pack.remove(&format!("{sheet_path}.mcmeta"));
+    }
 }
 
-fn join_moon_tiles(pack: &mut Pack, ctx: &mut Context) -> Result<()> {
+fn join_moon_tiles(pack: &mut Pack, ctx: &mut Context) {
     let mut tiles: Vec<RgbaImage> = Vec::new();
+    let mut budget = PixelBudget::new();
     for name in MOON_TILES {
-        match read_png(pack, &full(&moon_tile_path(name))) {
-            Some(Ok(tile)) => tiles.push(tile),
-            Some(Err(e)) => ctx.warn(format!("{e}; moon phases not joined")),
-            None => {}
+        let path = full(&moon_tile_path(name));
+        if let Some(tile) = load_png(pack, ctx, &path) {
+            if budget.take(&tile) {
+                tiles.push(tile);
+            } else {
+                ctx.warn(format!("{path}: too large to join into the moon sheet"));
+            }
         }
     }
     if tiles.is_empty() {
-        return Ok(());
+        return;
     }
     let (tile_w, tile_h) = tiles[0].dimensions();
     if tiles.len() != MOON_TILES.len() || tiles.iter().any(|t| t.dimensions() != (tile_w, tile_h)) {
         // A sheet with holes would hide the missing phases instead of falling back to vanilla.
         ctx.warn("moon phases need all 8 tiles of equal size to build moon_phases.png; tiles left unconverted");
-        return Ok(());
+        return;
     }
-    let mut sheet = RgbaImage::new(tile_w * SHEET_COLUMNS, tile_h * SHEET_ROWS);
+    if pack.contains(&full(MOON_SHEET)) {
+        ctx.warn("moon_phases.png already exists and was kept; the moon tiles were left unconverted");
+        return;
+    }
+    let Some(mut sheet) = canvas(ctx, MOON_SHEET, tile_w.checked_mul(SHEET_COLUMNS), tile_h.checked_mul(SHEET_ROWS)) else {
+        return;
+    };
     for (i, tile) in (0u32..).zip(&tiles) {
         imageops::replace(&mut sheet, tile, i64::from(i % SHEET_COLUMNS * tile_w), i64::from(i / SHEET_COLUMNS * tile_h));
     }
-    write_png(pack, &full(MOON_SHEET), &sheet)?;
+    if !save_png(pack, ctx, &full(MOON_SHEET), &sheet) {
+        return;
+    }
     for name in MOON_TILES {
         let path = full(&moon_tile_path(name));
         pack.remove(&path);
         pack.remove(&format!("{path}.mcmeta"));
     }
-    Ok(())
 }
 
 /// Atlas sources that put item sprites into the stitched atlas: the item folder itself and
@@ -209,8 +221,8 @@ impl Step for Celestials {
     }
 
     fn upgrade(&self, pack: &mut Pack, ctx: &mut Context) -> Result<()> {
-        move_files(pack, &CELESTIAL_FILES);
-        split_moon_sheet(pack, ctx)?;
+        move_files(pack, ctx, &CELESTIAL_FILES);
+        split_moon_sheet(pack, ctx);
         split_item_atlas(pack, ctx);
         warn_if_any(
             pack,
@@ -224,8 +236,8 @@ impl Step for Celestials {
 
     fn downgrade(&self, pack: &mut Pack, ctx: &mut Context) -> Result<()> {
         let reversed: Vec<_> = CELESTIAL_FILES.iter().map(|&(old, new)| (new, old)).collect();
-        move_files(pack, &reversed);
-        join_moon_tiles(pack, ctx)?;
+        move_files(pack, ctx, &reversed);
+        join_moon_tiles(pack, ctx);
         merge_item_atlas(pack, ctx);
         warn_if_any(
             pack,
@@ -338,5 +350,15 @@ mod tests {
         Celestials.upgrade(&mut pack, &mut ctx).unwrap();
         assert_eq!(ctx.into_warnings().len(), 3);
         assert!(pack.contains("assets/minecraft/textures/environment/moon_phases.png"));
+    }
+
+    #[test]
+    fn oversized_moon_sheet_is_kept() {
+        let mut pack = Pack::new();
+        pack.insert("assets/minecraft/textures/environment/moon_phases.png", crate::steps::support::oversized_png());
+        let mut ctx = context();
+        Celestials.upgrade(&mut pack, &mut ctx).unwrap();
+        assert!(pack.contains("assets/minecraft/textures/environment/moon_phases.png"));
+        assert_eq!(ctx.into_warnings().len(), 1);
     }
 }

@@ -6,6 +6,7 @@ use image::{imageops, RgbaImage};
 use serde_json::Value;
 
 use crate::step::Context;
+use crate::steps::support::{fits, Renamer};
 use crate::util::{namespaces, read_json, write_json};
 use crate::vfs::Pack;
 
@@ -25,44 +26,53 @@ pub fn reversed<'a>(pairs: &[(&'a str, &'a str)]) -> Vec<(&'a str, &'a str)> {
     pairs.iter().map(|&(from, to)| (to, from)).collect()
 }
 
-/// Moves a file together with its `.mcmeta` sibling. Returns whether the file existed.
-pub fn move_with_mcmeta(pack: &mut Pack, from: &str, to: &str) -> bool {
-    pack.rename(&format!("{from}.mcmeta"), &format!("{to}.mcmeta"));
-    pack.rename(from, to)
+/// Moves a file together with its `.mcmeta` sibling; an existing target is kept.
+/// Returns whether the file existed.
+pub fn move_with_mcmeta(pack: &mut Pack, renamer: &mut Renamer, from: &str, to: &str) -> bool {
+    renamer.rename(pack, &format!("{from}.mcmeta"), &format!("{to}.mcmeta"));
+    renamer.rename(pack, from, to)
 }
 
 /// Moves `assets/minecraft/textures/<from>` to `<to>` for every pair (paths include `.png`).
-pub fn move_textures(pack: &mut Pack, pairs: &[(&str, &str)]) {
+pub fn move_textures(pack: &mut Pack, ctx: &mut Context, pairs: &[(&str, &str)]) {
+    let mut renamer = Renamer::default();
     for (from, to) in pairs {
         move_with_mcmeta(
             pack,
+            &mut renamer,
             &format!("{MINECRAFT}/textures/{from}"),
             &format!("{MINECRAFT}/textures/{to}"),
         );
     }
+    renamer.report(ctx);
 }
 
 /// Renames vanilla resource ids such as `item/scute` -> `item/turtle_scute`: the texture
 /// (with its `.mcmeta`), the model, the blockstate of `block/` ids, and every reference to
 /// the id inside models, blockstates and item definitions of all namespaces.
 pub fn rename_ids(pack: &mut Pack, ctx: &mut Context, pairs: &[(&str, &str)]) {
+    let mut renamer = Renamer::default();
     for (from, to) in pairs {
         move_with_mcmeta(
             pack,
+            &mut renamer,
             &format!("{MINECRAFT}/textures/{from}.png"),
             &format!("{MINECRAFT}/textures/{to}.png"),
         );
-        pack.rename(
+        renamer.rename(
+            pack,
             &format!("{MINECRAFT}/models/{from}.json"),
             &format!("{MINECRAFT}/models/{to}.json"),
         );
         if let (Some(from), Some(to)) = (from.strip_prefix("block/"), to.strip_prefix("block/")) {
-            pack.rename(
+            renamer.rename(
+                pack,
                 &format!("{MINECRAFT}/blockstates/{from}.json"),
                 &format!("{MINECRAFT}/blockstates/{to}.json"),
             );
         }
     }
+    renamer.report(ctx);
     let map: HashMap<&str, &str> = pairs.iter().copied().collect();
     for ns in namespaces(pack) {
         for dir in ["models", "blockstates", "items"] {
@@ -109,18 +119,21 @@ fn rewrite_refs(value: &mut Value, map: &HashMap<&str, &str>) -> bool {
 
 /// Crops `(x, y, w, h)`; returns `None` when the rectangle does not fit inside the image.
 pub fn crop(img: &RgbaImage, x: u32, y: u32, w: u32, h: u32) -> Option<RgbaImage> {
-    if w == 0 || h == 0 || x + w > img.width() || y + h > img.height() {
+    let fits_inside = x.checked_add(w).is_some_and(|right| right <= img.width())
+        && y.checked_add(h).is_some_and(|bottom| bottom <= img.height());
+    if w == 0 || h == 0 || !fits_inside {
         return None;
     }
     Some(imageops::crop_imm(img, x, y, w, h).to_image())
 }
 
-/// Nearest-neighbour resize, the only scaling that keeps pixel art crisp.
-pub fn resize(img: &RgbaImage, w: u32, h: u32) -> RgbaImage {
+/// Nearest-neighbour resize, the only scaling that keeps pixel art crisp. `None` when the
+/// target size is empty or over the image size limit.
+pub fn resize(img: &RgbaImage, w: u32, h: u32) -> Option<RgbaImage> {
     if img.dimensions() == (w, h) {
-        return img.clone();
+        return Some(img.clone());
     }
-    imageops::resize(img, w, h, imageops::FilterType::Nearest)
+    fits(w, h).then(|| imageops::resize(img, w, h, imageops::FilterType::Nearest))
 }
 
 /// Writes `sprite` over `canvas` at `(x, y)`, replacing the pixels underneath (also transparent ones).

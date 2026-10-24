@@ -7,9 +7,9 @@ use image::imageops::{self, FilterType};
 use image::{Rgba, RgbaImage};
 use serde::Deserialize;
 
-use crate::error::Result;
 use crate::step::Context;
-use crate::util::{read_png, write_png};
+use crate::steps::support::{self, canvas, save_png, PixelBudget};
+use crate::util::MAX_IMAGE_PIXELS;
 use crate::vfs::Pack;
 
 const TRANSPARENT: Rgba<u8> = Rgba([0, 0, 0, 0]);
@@ -85,13 +85,7 @@ pub fn scale_factor(img: &RgbaImage, (design_w, design_h): (u32, u32)) -> Option
 
 /// Reads a PNG, warning and returning `None` when it is not a valid image. A missing file is silent.
 pub fn load_png(pack: &Pack, path: &str, ctx: &mut Context) -> Option<RgbaImage> {
-    match read_png(pack, path)? {
-        Ok(img) => Some(img),
-        Err(err) => {
-            ctx.warn(format!("{err}; file skipped"));
-            None
-        }
-    }
+    support::load_png(pack, ctx, path)
 }
 
 #[derive(Deserialize, Clone, Copy)]
@@ -179,9 +173,16 @@ impl Sheet {
         self
     }
 
-    /// Cuts the sprites out of the sheet. A missing sheet is skipped silently.
-    pub fn slice(&self, pack: &mut Pack, ctx: &mut Context) -> Result<()> {
-        let Some(mut sheet) = load_png(pack, &self.path, ctx) else { return Ok(()) };
+    /// Size of the sheet at scale `k`, if it stays within the image size limit.
+    fn size_at(&self, k: u32) -> Option<(u32, u32)> {
+        let (w, h) = (self.design.0.checked_mul(k)?, self.design.1.checked_mul(k)?);
+        (u64::from(w) * u64::from(h) <= MAX_IMAGE_PIXELS).then_some((w, h))
+    }
+
+    /// Cuts the sprites out of the sheet. A missing sheet is skipped silently. Sprites the
+    /// pack already has are kept, and the sheet is only deleted when every sprite exists.
+    pub fn slice(&self, pack: &mut Pack, ctx: &mut Context) {
+        let Some(mut sheet) = load_png(pack, &self.path, ctx) else { return };
         let Some(k) = scale_factor(&sheet, self.design) else {
             ctx.warn(format!(
                 "{}: size {}x{} is not a multiple of {}x{}; sheet left unsliced",
@@ -191,37 +192,56 @@ impl Sheet {
                 self.design.0,
                 self.design.1
             ));
-            return Ok(());
+            return;
         };
+        let mut complete = true;
         for sprite in &self.sprites {
             let area = sprite.area(k);
-            let mut cut = crop(&sheet, area);
-            if sprite.square {
-                cut = pad_to_square(&cut);
+            if !pack.contains(&sprite.path) {
+                let mut cut = crop(&sheet, area);
+                if sprite.square {
+                    let Some(padded) = pad_to_square(ctx, &sprite.path, &cut) else {
+                        complete = false;
+                        continue;
+                    };
+                    cut = padded;
+                }
+                if !save_png(pack, ctx, &sprite.path, &cut) {
+                    complete = false;
+                    continue;
+                }
             }
-            write_png(pack, &sprite.path, &cut)?;
             if sprite.clear {
                 clear_area(&mut sheet, area);
             }
         }
         if self.keep {
-            write_png(pack, &self.path, &sheet)?;
-        } else {
+            save_png(pack, ctx, &self.path, &sheet);
+        } else if complete {
             pack.remove(&self.path);
         }
-        Ok(())
     }
 
     /// Puts the sprites back into the sheet and removes their files. Returns `true` when only
     /// some of the sprites existed, so the sheet has blank cells. The caller decides whether to warn.
-    pub fn unslice(&self, pack: &mut Pack, ctx: &mut Context) -> Result<bool> {
-        let found: Vec<(&Sprite, RgbaImage)> = self
-            .sprites
-            .iter()
-            .filter_map(|s| load_png(pack, &s.path, ctx).map(|img| (s, img)))
-            .collect();
+    ///
+    /// The sheet is rebuilt at the finest scale of its sprites. A sprite so large that the sheet
+    /// would exceed the image size limit is an outlier: it is left in the pack, not merged.
+    pub fn unslice(&self, pack: &mut Pack, ctx: &mut Context) -> bool {
+        let mut found: Vec<(&Sprite, RgbaImage, u32)> = Vec::new();
+        // Sprites are cells of the sheet, so together they never need more pixels than one sheet.
+        let mut budget = PixelBudget::new();
+        for sprite in &self.sprites {
+            let Some(img) = load_png(pack, &sprite.path, ctx) else { continue };
+            let k = img.width().div_ceil(sprite.source_size().0.max(1));
+            if self.size_at(k).is_none() || !budget.take(&img) {
+                ctx.warn(format!("{}: too large to merge into the sheet, left as it is", sprite.path));
+                continue;
+            }
+            found.push((sprite, img, k));
+        }
         if found.is_empty() {
-            return Ok(false);
+            return false;
         }
         let base = if self.keep {
             match load_png(pack, &self.path, ctx) {
@@ -231,28 +251,28 @@ impl Sheet {
                         "{}: missing, its split-off sprites were left in place",
                         self.path
                     ));
-                    return Ok(false);
+                    return false;
                 }
             }
         } else {
             None
         };
 
-        // The finest sprite decides the resolution of the rebuilt sheet.
-        let base_k = base.as_ref().and_then(|b| scale_factor(b, self.design));
-        let k = found
-            .iter()
-            .map(|(s, img)| img.width().div_ceil(s.source_size().0))
-            .chain(base_k)
-            .max()
-            .unwrap_or(1);
-        let (w, h) = (self.design.0 * k, self.design.1 * k);
+        let base_k = base
+            .as_ref()
+            .and_then(|b| scale_factor(b, self.design))
+            .filter(|&k| self.size_at(k).is_some());
+        let k = found.iter().map(|&(_, _, k)| k).chain(base_k).max().unwrap_or(1);
+        let Some((w, h)) = self.size_at(k) else { return false };
         let mut sheet = match base {
             Some(base) if base.dimensions() == (w, h) => base,
             Some(base) => resize_nearest(&base, w, h),
-            None => RgbaImage::new(w, h),
+            None => match canvas(ctx, &self.path, Some(w), Some(h)) {
+                Some(sheet) => sheet,
+                None => return false,
+            },
         };
-        for (sprite, img) in &found {
+        for (sprite, img, _) in &found {
             let target = sprite.area(k);
             let mut cell = if sprite.square { unpad_square(img, sprite) } else { img.clone() };
             if cell.dimensions() != (target.2, target.3) {
@@ -266,12 +286,14 @@ impl Sheet {
                 Flip::None,
             );
         }
-        write_png(pack, &self.path, &sheet)?;
-        for (sprite, _) in &found {
+        if !save_png(pack, ctx, &self.path, &sheet) {
+            return false;
+        }
+        for (sprite, _, _) in &found {
             pack.remove(&sprite.path);
             pack.remove(&format!("{}.mcmeta", sprite.path));
         }
-        Ok(found.len() < self.sprites.len())
+        found.len() < self.sprites.len()
     }
 }
 
@@ -293,12 +315,12 @@ impl Sprite {
 }
 
 /// Centres the image on a transparent square canvas.
-fn pad_to_square(img: &RgbaImage) -> RgbaImage {
+fn pad_to_square(ctx: &mut Context, path: &str, img: &RgbaImage) -> Option<RgbaImage> {
     let side = img.width().max(img.height());
-    let mut out = RgbaImage::new(side, side);
+    let mut out = canvas(ctx, path, Some(side), Some(side))?;
     let at = ((side - img.width()) / 2, (side - img.height()) / 2);
     copy_area(&mut out, img, (0, 0, img.width(), img.height()), at, Flip::None);
-    out
+    Some(out)
 }
 
 /// Inverse of [`pad_to_square`] for a sprite whose cell has the proportions of `sprite.cell`.
@@ -312,6 +334,7 @@ fn unpad_square(img: &RgbaImage, sprite: &Sprite) -> RgbaImage {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::util::{read_png, write_png};
     use crate::version::Version;
 
     fn ctx() -> Context {
@@ -337,13 +360,13 @@ mod tests {
             let original = sheet_image(scale);
             let mut pack = Pack::new();
             write_png(&mut pack, "root/s.png", &original).unwrap();
-            sheet.slice(&mut pack, &mut ctx()).unwrap();
+            sheet.slice(&mut pack, &mut ctx());
             assert!(!pack.contains("root/s.png"));
             let a = read_png(&pack, "root/a.png").unwrap().unwrap();
             assert_eq!(a.dimensions(), (4 * scale, 4 * scale));
             assert_eq!(a, crop(&original, (0, 0, 4 * scale, 4 * scale)));
 
-            let partial = sheet.unslice(&mut pack, &mut ctx()).unwrap();
+            let partial = sheet.unslice(&mut pack, &mut ctx());
             assert!(!partial);
             assert!(!pack.contains("root/a.png"));
             let rebuilt = read_png(&pack, "root/s.png").unwrap().unwrap();
@@ -361,7 +384,7 @@ mod tests {
         let mut pack = Pack::new();
         write_png(&mut pack, "root/a.png", &RgbaImage::from_pixel(8, 8, Rgba([1, 2, 3, 255])))
             .unwrap();
-        assert!(sheet.unslice(&mut pack, &mut ctx()).unwrap());
+        assert!(sheet.unslice(&mut pack, &mut ctx()));
         let rebuilt = read_png(&pack, "root/s.png").unwrap().unwrap();
         assert_eq!(rebuilt.dimensions(), (16, 16));
         assert_eq!(rebuilt.get_pixel(7, 7), &Rgba([1, 2, 3, 255]));
@@ -376,11 +399,11 @@ mod tests {
         let original = sheet_image(1);
         let mut pack = Pack::new();
         write_png(&mut pack, "r/s.png", &original).unwrap();
-        sheet.slice(&mut pack, &mut ctx()).unwrap();
+        sheet.slice(&mut pack, &mut ctx());
         let cleared = read_png(&pack, "r/s.png").unwrap().unwrap();
         assert_eq!(cleared.get_pixel(1, 1)[3], 0);
         assert_eq!(cleared.get_pixel(5, 1), original.get_pixel(5, 1));
-        sheet.unslice(&mut pack, &mut ctx()).unwrap();
+        sheet.unslice(&mut pack, &mut ctx());
         assert_eq!(read_png(&pack, "r/s.png").unwrap().unwrap(), original);
     }
 
@@ -392,11 +415,11 @@ mod tests {
         let original = RgbaImage::from_pixel(8, 4, Rgba([9, 9, 9, 255]));
         let mut pack = Pack::new();
         write_png(&mut pack, "r/s.png", &original).unwrap();
-        sheet.slice(&mut pack, &mut ctx()).unwrap();
+        sheet.slice(&mut pack, &mut ctx());
         let padded = read_png(&pack, "r/a.png").unwrap().unwrap();
         assert_eq!(padded.dimensions(), (8, 8));
         assert_eq!((padded.get_pixel(0, 1)[3], padded.get_pixel(0, 2)[3]), (0, 255));
-        sheet.unslice(&mut pack, &mut ctx()).unwrap();
+        sheet.unslice(&mut pack, &mut ctx());
         assert_eq!(read_png(&pack, "r/s.png").unwrap().unwrap(), original);
     }
 
@@ -406,8 +429,39 @@ mod tests {
         let mut pack = Pack::new();
         write_png(&mut pack, "root/s.png", &RgbaImage::new(12, 12)).unwrap();
         let mut ctx = ctx();
-        sheet.slice(&mut pack, &mut ctx).unwrap();
+        sheet.slice(&mut pack, &mut ctx);
         assert!(pack.contains("root/s.png"));
+        assert_eq!(ctx.into_warnings().len(), 1);
+    }
+
+    #[test]
+    fn slicing_keeps_sprites_the_pack_already_has() {
+        let sheet = Sheet::parse_all(DEF, "root").remove(0);
+        let mut pack = Pack::new();
+        write_png(&mut pack, "root/s.png", &sheet_image(1)).unwrap();
+        let mine = RgbaImage::from_pixel(4, 4, Rgba([7, 7, 7, 255]));
+        write_png(&mut pack, "root/a.png", &mine).unwrap();
+        sheet.slice(&mut pack, &mut ctx());
+        assert_eq!(read_png(&pack, "root/a.png").unwrap().unwrap(), mine);
+        assert!(pack.contains("root/b.png"));
+        assert!(!pack.contains("root/s.png"));
+    }
+
+    #[test]
+    fn oversized_sprite_is_an_outlier_that_stays_in_the_pack() {
+        let sheet = Sheet::parse_all(DEF, "root").remove(0);
+        let mut pack = Pack::new();
+        let small = RgbaImage::from_pixel(8, 8, Rgba([1, 2, 3, 255]));
+        write_png(&mut pack, "root/a.png", &small).unwrap();
+        // 4 px cell, 8192 px wide: a sheet at that scale would be 16384x16384.
+        let huge = RgbaImage::from_pixel(8192, 1, Rgba([9, 9, 9, 255]));
+        write_png(&mut pack, "root/b.png", &huge).unwrap();
+        let mut ctx = ctx();
+        assert!(sheet.unslice(&mut pack, &mut ctx));
+        let rebuilt = read_png(&pack, "root/s.png").unwrap().unwrap();
+        assert_eq!(rebuilt.dimensions(), (16, 16));
+        assert!(pack.contains("root/b.png"));
+        assert!(!pack.contains("root/a.png"));
         assert_eq!(ctx.into_warnings().len(), 1);
     }
 

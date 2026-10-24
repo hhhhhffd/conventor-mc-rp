@@ -21,8 +21,9 @@ pub fn directed(pairs: &Pairs, up: bool) -> Vec<(&'static str, &'static str)> {
 }
 
 /// Moves files (plus the `.mcmeta` sibling of every PNG). All sources are taken out before
-/// anything is written, so renames that swap or chain names stay correct.
-pub fn move_files<A: AsRef<str>, B: AsRef<str>>(pack: &mut Pack, pairs: &[(A, B)]) {
+/// anything is written, so renames that swap or chain names stay correct. A destination that
+/// is already taken keeps its file and the source is dropped, which is reported once.
+pub fn move_files<A: AsRef<str>, B: AsRef<str>>(pack: &mut Pack, ctx: &mut Context, pairs: &[(A, B)]) {
     let mut moved = Vec::new();
     for (from, to) in pairs {
         let (from, to) = (format!("{MINECRAFT}{}", from.as_ref()), format!("{MINECRAFT}{}", to.as_ref()));
@@ -35,14 +36,25 @@ pub fn move_files<A: AsRef<str>, B: AsRef<str>>(pack: &mut Pack, pairs: &[(A, B)
             }
         }
     }
+    let mut dropped = Vec::new();
     for (path, data) in moved {
-        pack.insert(path, data);
+        if pack.contains(&path) {
+            dropped.push(path);
+        } else {
+            pack.insert(path, data);
+        }
+    }
+    if let Some(first) = dropped.first() {
+        ctx.warn(format!(
+            "{} renamed file(s) were dropped because the destination already exists (for example {first}); the existing destination was kept",
+            dropped.len()
+        ));
     }
 }
 
 /// Resource id rewriting table. Matches ids with or without the `minecraft:` namespace, with
 /// or without a leading `textures/` and trailing `.png`, so one table serves model
-/// `textures`, item definitions, atlases and OptiFine CEM models alike.
+/// `textures`, item definitions and atlases alike.
 pub struct RefMap(HashMap<&'static str, &'static str>);
 
 impl RefMap {

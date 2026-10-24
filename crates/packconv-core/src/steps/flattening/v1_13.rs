@@ -1,10 +1,10 @@
 //! 1.13 "The Flattening": lowercase flat resource names, singular `block`/`item` directories,
-//! `.lang` replaced by JSON, `mcpatcher` renamed `optifine`, and the pixel changes in `images`.
+//! `.lang` replaced by JSON, and the pixel changes in `images`.
 
 use serde_json::{Map, Value};
 
 use super::maps::{names, Direction, Names, RefKind};
-use super::{images, lang, optifine};
+use super::{images, lang};
 use crate::error::Result;
 use crate::step::{Context, Step};
 use crate::util::{read_json, write_json};
@@ -23,15 +23,17 @@ impl Step for Flattening {
     }
 
     fn upgrade(&self, pack: &mut Pack, ctx: &mut Context) -> Result<()> {
-        convert(pack, ctx, Direction::Up)
+        convert(pack, ctx, Direction::Up);
+        Ok(())
     }
 
     fn downgrade(&self, pack: &mut Pack, ctx: &mut Context) -> Result<()> {
-        convert(pack, ctx, Direction::Down)
+        convert(pack, ctx, Direction::Down);
+        Ok(())
     }
 }
 
-fn convert(pack: &mut Pack, ctx: &mut Context, direction: Direction) -> Result<()> {
+fn convert(pack: &mut Pack, ctx: &mut Context, direction: Direction) {
     let names = names(direction);
     move_files(pack, ctx, names, direction);
     rewrite_json(pack, ctx, "models/", |json| rewrite_model(json, names));
@@ -48,13 +50,12 @@ fn convert(pack: &mut Pack, ctx: &mut Context, direction: Direction) -> Result<(
         ctx.warn("blockstates were only renamed and re-pathed: block states that the flattening split into separate blocks are not converted");
     }
     lang::convert(pack, ctx, direction);
-    optifine::convert(pack, ctx, direction);
-    images::convert(pack, ctx, direction)
+    images::convert(pack, ctx, direction);
 }
 
 /// Moves every file to the path `Names::retarget` gives it. All sources are removed before
 /// anything is written, so name swaps like `grass` -> `grass_block` and `tallgrass` -> `grass`
-/// cannot clobber each other.
+/// cannot clobber each other. A target that is already taken keeps its file.
 fn move_files(pack: &mut Pack, ctx: &mut Context, names: &Names, direction: Direction) {
     let mut moved = Vec::new();
     for path in pack.paths_with_prefix("assets/") {
@@ -71,13 +72,14 @@ fn move_files(pack: &mut Pack, ctx: &mut Context, names: &Names, direction: Dire
         .any(|(source, target, _)| source.rsplit('/').next() != target.rsplit('/').next());
     for (source, target, data) in moved {
         if pack.contains(&target) {
-            collision = Some((source, target.clone()));
+            collision.get_or_insert((source, target));
+        } else {
+            pack.insert(target, data);
         }
-        pack.insert(target, data);
     }
     if let Some((source, target)) = collision {
         ctx.warn(format!(
-            "several files map to {target} (for example {source}); the last one was kept"
+            "several files map to {target} (for example {source}); the existing one was kept"
         ));
     }
     if direction == Direction::Down && renamed {
@@ -318,10 +320,6 @@ mod tests {
             "assets/minecraft/sounds.json",
             json!({"Foo.Bar": {"sounds": ["Mob/Cow", {"name": "Mob/Pig", "volume": 0.5}]}}),
         );
-        pack.insert(
-            "assets/minecraft/mcpatcher/ctm/stone/stone.properties",
-            b"matchBlocks=1 minecraft:dirt 5:1\nmetadata=0\ntiles=0-3\ntexture=textures/blocks/planks_oak.png\nname=Keep Me\n".to_vec(),
-        );
         put_png(
             &mut pack,
             "assets/minecraft/textures/blocks/water_still.png",
@@ -385,15 +383,6 @@ mod tests {
         assert_eq!(sounds["foo.bar"]["sounds"][0], "mob/cow");
         assert_eq!(sounds["foo.bar"]["sounds"][1]["name"], "mob/pig");
 
-        let properties = text(
-            &pack,
-            "assets/minecraft/optifine/ctm/stone/stone.properties",
-        );
-        assert_eq!(
-            properties,
-            "matchBlocks=minecraft:stone minecraft:dirt minecraft:spruce_planks\ntiles=0-3\ntexture=textures/block/oak_planks.png\nname=Keep Me\n"
-        );
-
         let water = read_png(&pack, "assets/minecraft/textures/block/water_still.png")
             .unwrap()
             .unwrap();
@@ -442,6 +431,39 @@ mod tests {
     }
 
     #[test]
+    fn existing_target_is_kept() {
+        let mut pack = Pack::new();
+        put_png(&mut pack, "assets/minecraft/textures/blocks/planks_oak.png", 1, [1, 0, 0, 255]);
+        put_png(&mut pack, "assets/minecraft/textures/block/oak_planks.png", 1, [2, 0, 0, 255]);
+        let mut ctx = ctx();
+        Flattening.upgrade(&mut pack, &mut ctx).unwrap();
+        let red = |path: &str| read_png(&pack, path).unwrap().unwrap().get_pixel(0, 0).0[0];
+        assert_eq!(red("assets/minecraft/textures/block/oak_planks.png"), 2);
+        assert!(!pack.contains("assets/minecraft/textures/blocks/planks_oak.png"));
+        assert_eq!(ctx.into_warnings().len(), 1);
+    }
+
+    #[test]
+    fn oversized_sheets_are_left_alone() {
+        let mut pack = Pack::new();
+        let paths = [
+            "assets/minecraft/textures/blocks/water_still.png",
+            "assets/minecraft/textures/particle/particles.png",
+            "assets/minecraft/textures/map/map_icons.png",
+        ];
+        for path in paths {
+            pack.insert(path, crate::steps::support::oversized_png());
+        }
+        let mut ctx = ctx();
+        Flattening.upgrade(&mut pack, &mut ctx).unwrap();
+        for path in paths {
+            let new_path = path.replace("blocks/", "block/");
+            assert_eq!(pack.get(&new_path), Some(&crate::steps::support::oversized_png()[..]));
+        }
+        assert_eq!(ctx.into_warnings().len(), 3);
+    }
+
+    #[test]
     fn downgrade_inverts_upgrade() {
         let mut pack = pack_1_12();
         let mut ctx = ctx();
@@ -469,16 +491,6 @@ mod tests {
         let lang = text(&pack, "assets/minecraft/lang/en_us.lang");
         assert_eq!(lang, "tile.stone.stone.name=Stone\nmod.key=Hi = there\n");
         assert!(!pack.contains("assets/minecraft/lang/en_us.json"));
-
-        let properties = text(
-            &pack,
-            "assets/minecraft/mcpatcher/ctm/stone/stone.properties",
-        );
-        assert!(
-            properties.starts_with("matchBlocks=1 3 5:1\n"),
-            "{properties}"
-        );
-        assert!(properties.contains("texture=textures/blocks/planks_oak.png\n"));
 
         let particles = read_png(&pack, "assets/minecraft/textures/particle/particles.png")
             .unwrap()

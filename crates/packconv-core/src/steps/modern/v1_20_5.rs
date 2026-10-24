@@ -1,11 +1,9 @@
 //! 1.20.5: map icons were cut into `textures/map/decorations/*.png`, and `scute` became `turtle_scute`.
 
-use image::RgbaImage;
-
 use super::common::{crop, paste, rename_ids, resize, reversed};
 use crate::error::Result;
 use crate::step::{Context, Step};
-use crate::util::{read_png, write_png};
+use crate::steps::support::{canvas, load_png, max_scale, save_png, PixelBudget};
 use crate::version::Version;
 use crate::vfs::Pack;
 
@@ -42,53 +40,74 @@ impl Step for V1_20_5 {
 
     fn upgrade(&self, pack: &mut Pack, ctx: &mut Context) -> Result<()> {
         rename_ids(pack, ctx, SCUTE);
-        let sheet = match read_png(pack, MAP_ICONS) {
-            None => return Ok(()),
-            Some(Ok(sheet)) => sheet,
-            Some(Err(e)) => {
-                ctx.warn(format!("{e}; map icons not sliced"));
-                return Ok(());
-            }
-        };
+        let Some(sheet) = load_png(pack, ctx, MAP_ICONS) else { return Ok(()) };
+        // The sheet is a 16x16 grid of cells; anything else cannot be cut.
+        if sheet.width() % 16 != 0 || sheet.height() % 16 != 0 {
+            ctx.warn(format!(
+                "{MAP_ICONS} is {}x{}, not a multiple of 16; map icons not sliced",
+                sheet.width(),
+                sheet.height()
+            ));
+            return Ok(());
+        }
         let (cell_w, cell_h) = (sheet.width() / 16, sheet.height() / 16);
         let cells = if ctx.from < Version::new(1, 20, 2) { FIRST_CELL_ADDED_IN_1_20_2 } else { NAMES.len() };
+        let mut complete = true;
         for (i, name) in NAMES.iter().enumerate().take(cells) {
             let (col, row) = (i as u32 % 16, i as u32 / 16);
             let path = format!("{DECORATIONS}/{name}.png");
             if pack.contains(&path) {
                 continue;
             }
-            if let Some(icon) = crop(&sheet, col * cell_w, row * cell_h, cell_w, cell_h) {
-                write_png(pack, &path, &icon)?;
+            match crop(&sheet, col * cell_w, row * cell_h, cell_w, cell_h) {
+                Some(icon) => complete &= save_png(pack, ctx, &path, &icon),
+                None => complete = false,
             }
         }
-        pack.remove(MAP_ICONS);
-        pack.remove(&format!("{MAP_ICONS}.mcmeta"));
+        // The sheet is only removed when all of its icons were cut out.
+        if complete {
+            pack.remove(MAP_ICONS);
+            pack.remove(&format!("{MAP_ICONS}.mcmeta"));
+        }
         Ok(())
     }
 
     fn downgrade(&self, pack: &mut Pack, ctx: &mut Context) -> Result<()> {
         rename_ids(pack, ctx, &reversed(SCUTE));
         let mut icons = Vec::new();
+        let mut budget = PixelBudget::new();
         for (i, name) in NAMES.iter().enumerate() {
-            match read_png(pack, &format!("{DECORATIONS}/{name}.png")) {
-                None => {}
-                Some(Ok(icon)) => icons.push((i as u32, icon)),
-                Some(Err(e)) => ctx.warn(format!("{e}; map decoration not merged")),
+            let path = format!("{DECORATIONS}/{name}.png");
+            let Some(icon) = load_png(pack, ctx, &path) else { continue };
+            if budget.take(&icon) {
+                icons.push((i as u32, name, icon));
+            } else {
+                ctx.warn(format!("{path}: too large to merge into the map icon sheet, left as it is"));
             }
         }
         if icons.is_empty() {
             return Ok(());
         }
-        let scale = icons.iter().map(|(_, icon)| icon.width() / 8).max().unwrap_or(1).max(1);
-        let mut sheet = RgbaImage::new(128 * scale, 128 * scale);
-        for (i, icon) in &icons {
-            paste(&mut sheet, &resize(icon, 8 * scale, 8 * scale), (i % 16) * 8 * scale, (i / 16) * 8 * scale);
+        // The finest icon decides the sheet scale, up to the largest sheet that fits the size limit.
+        let scale = icons
+            .iter()
+            .map(|(_, _, icon)| icon.width() / 8)
+            .max()
+            .unwrap_or(1)
+            .clamp(1, max_scale(128, 128));
+        let Some(mut sheet) = canvas(ctx, MAP_ICONS, 128u32.checked_mul(scale), 128u32.checked_mul(scale)) else {
+            return Ok(());
+        };
+        for (i, _, icon) in &icons {
+            if let Some(cell) = resize(icon, 8 * scale, 8 * scale) {
+                paste(&mut sheet, &cell, (i % 16) * 8 * scale, (i / 16) * 8 * scale);
+            }
         }
-        write_png(pack, MAP_ICONS, &sheet)?;
-        for name in NAMES {
-            pack.remove(&format!("{DECORATIONS}/{name}.png"));
-            pack.remove(&format!("{DECORATIONS}/{name}.png.mcmeta"));
+        if save_png(pack, ctx, MAP_ICONS, &sheet) {
+            for (_, name, _) in &icons {
+                pack.remove(&format!("{DECORATIONS}/{name}.png"));
+                pack.remove(&format!("{DECORATIONS}/{name}.png.mcmeta"));
+            }
         }
         Ok(())
     }
@@ -133,5 +152,21 @@ mod tests {
         put_png(&mut pack, "assets/minecraft/textures/item/scute.png", &solid(1, 1, [1, 1, 1, 255]));
         V1_20_5.upgrade(&mut pack, &mut ctx).unwrap();
         assert!(pack.contains("assets/minecraft/textures/item/turtle_scute.png"));
+    }
+
+    #[test]
+    fn tiny_or_oversized_icon_sheets_are_kept() {
+        let mut pack = Pack::new();
+        put_png(&mut pack, MAP_ICONS, &solid(8, 8, [1, 2, 3, 255]));
+        let mut ctx = Context::new(Version::new(1, 20, 4), Version::new(1, 20, 5));
+        V1_20_5.upgrade(&mut pack, &mut ctx).unwrap();
+        assert!(pack.contains(MAP_ICONS));
+        assert_eq!(ctx.into_warnings().len(), 1);
+
+        let mut pack = Pack::new();
+        pack.insert(MAP_ICONS, crate::steps::support::oversized_png());
+        let mut ctx = Context::new(Version::new(1, 20, 4), Version::new(1, 20, 5));
+        V1_20_5.upgrade(&mut pack, &mut ctx).unwrap();
+        assert_eq!(pack.get(MAP_ICONS), Some(&crate::steps::support::oversized_png()[..]));
     }
 }

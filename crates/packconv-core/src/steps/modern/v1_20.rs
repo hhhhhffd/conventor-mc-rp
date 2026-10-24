@@ -1,11 +1,9 @@
 //! 1.20: pottery shards became sherds, and the title logo texture was re-laid out.
 
-use image::RgbaImage;
-
 use super::common::{crop, paste, rename_ids, reversed};
 use crate::error::Result;
 use crate::step::{Context, Step};
-use crate::util::{read_png, write_png};
+use crate::steps::support::{canvas, load_png, save_png};
 use crate::version::Version;
 use crate::vfs::Pack;
 
@@ -35,68 +33,56 @@ impl Step for V1_20 {
 
     fn upgrade(&self, pack: &mut Pack, ctx: &mut Context) -> Result<()> {
         rename_ids(pack, ctx, POTTERY);
-        upgrade_title(pack, ctx)
+        upgrade_title(pack, ctx);
+        Ok(())
     }
 
     fn downgrade(&self, pack: &mut Pack, ctx: &mut Context) -> Result<()> {
         rename_ids(pack, ctx, &reversed(POTTERY));
-        downgrade_title(pack, ctx)
+        downgrade_title(pack, ctx);
+        Ok(())
     }
 }
 
 /// The old logo is a square 256x256 sheet with "MINE" at (0,0,155x44) and "CRAFT" below it at
 /// (0,45,119x45). 1.20 draws both halves side by side from a 274x64 design-space sheet.
 /// MINE is cut 156 wide and CRAFT is pasted at x=155, so they overlap by one column (as the upstream converter does).
-fn upgrade_title(pack: &mut Pack, ctx: &mut Context) -> Result<()> {
-    let Some(img) = read_png(pack, TITLE) else { return Ok(()) };
-    let img = match img {
-        Ok(img) => img,
-        Err(e) => {
-            ctx.warn(format!("{e}; title logo not converted"));
-            return Ok(());
-        }
-    };
+fn upgrade_title(pack: &mut Pack, ctx: &mut Context) {
+    let Some(img) = load_png(pack, ctx, TITLE) else { return };
     let (w, h) = img.dimensions();
     if w != h {
         // Already in the new, non-square layout.
-        return Ok(());
+        return;
     }
     if w % 256 != 0 {
         ctx.warn(format!("{TITLE} is {w}x{h}, not a multiple of 256; title logo not converted"));
-        return Ok(());
+        return;
     }
     let s = w / 256;
-    let mut out = RgbaImage::new(274 * s, 64 * s);
+    let Some(mut out) = canvas(ctx, TITLE, 274u32.checked_mul(s), 64u32.checked_mul(s)) else { return };
     if let (Some(mine), Some(craft)) = (crop(&img, 0, 0, 156 * s, 44 * s), crop(&img, 0, 45 * s, 119 * s, 45 * s)) {
         paste(&mut out, &mine, 0, 0);
         paste(&mut out, &craft, 155 * s, 0);
     }
-    write_png(pack, TITLE, &out)
+    save_png(pack, ctx, TITLE, &out);
 }
 
-fn downgrade_title(pack: &mut Pack, ctx: &mut Context) -> Result<()> {
-    let Some(img) = read_png(pack, TITLE) else { return Ok(()) };
-    let img = match img {
-        Ok(img) => img,
-        Err(e) => {
-            ctx.warn(format!("{e}; title logo not converted"));
-            return Ok(());
-        }
-    };
+fn downgrade_title(pack: &mut Pack, ctx: &mut Context) {
+    let Some(img) = load_png(pack, ctx, TITLE) else { return };
     let (w, h) = img.dimensions();
     let s = h / 64;
     if s == 0 || w != 274 * s || h != 64 * s {
         ctx.warn(format!(
             "{TITLE} is {w}x{h}, not the 274x64 layout produced by the upgrade; the 1.20 logo cannot be split back and was left unchanged"
         ));
-        return Ok(());
+        return;
     }
-    let mut out = RgbaImage::new(256 * s, 256 * s);
+    let Some(mut out) = canvas(ctx, TITLE, 256u32.checked_mul(s), 256u32.checked_mul(s)) else { return };
     if let (Some(mine), Some(craft)) = (crop(&img, 0, 0, 156 * s, 44 * s), crop(&img, 155 * s, 0, 119 * s, 45 * s)) {
         paste(&mut out, &mine, 0, 0);
         paste(&mut out, &craft, 0, 45 * s);
     }
-    write_png(pack, TITLE, &out)
+    save_png(pack, ctx, TITLE, &out);
 }
 
 #[cfg(test)]

@@ -11,7 +11,8 @@ use serde_json::{json, Value};
 
 use crate::error::Result;
 use crate::step::{Context, Step};
-use crate::util::{write_json, write_png};
+use crate::steps::support::{canvas, save_png};
+use crate::util::write_json;
 use crate::version::Version;
 use crate::vfs::Pack;
 
@@ -149,7 +150,9 @@ fn rearrange_tabs(pack: &mut Pack, ctx: &mut Context, back: bool) -> Result<()> 
         ));
         return Ok(());
     };
-    let mut out = image::RgbaImage::new(tabs.width(), tabs.height());
+    let Some(mut out) = canvas(ctx, TABS, Some(tabs.width()), Some(tabs.height())) else {
+        return Ok(());
+    };
     for ((x, y, w, h), (dx, dy)) in tab_copies(k) {
         if back {
             copy_area(&mut out, &tabs, (dx, dy, w, h), (x, y), Flip::None);
@@ -157,13 +160,14 @@ fn rearrange_tabs(pack: &mut Pack, ctx: &mut Context, back: bool) -> Result<()> 
             copy_area(&mut out, &tabs, (x, y, w, h), (dx, dy), Flip::None);
         }
     }
-    write_png(pack, TABS, &out)
+    save_png(pack, ctx, TABS, &out);
+    Ok(())
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::util::read_png;
+    use crate::util::{read_png, write_png};
     use image::{Rgba, RgbaImage};
 
     fn ctx() -> Context {

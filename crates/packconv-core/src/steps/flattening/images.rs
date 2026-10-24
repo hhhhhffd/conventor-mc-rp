@@ -1,32 +1,20 @@
 //! Texture sheets whose pixels changed in 1.13: water tint, the particle sheet and map icons.
 
-use image::{imageops, RgbaImage};
+use image::imageops;
 
 use super::maps::Direction;
-use crate::error::Result;
 use crate::step::Context;
-use crate::util::{read_png, write_png};
+use crate::steps::support::{canvas, load_png, save_png};
 use crate::vfs::Pack;
 
-/// Reads a PNG, reporting (and skipping) undecodable files.
-fn load(pack: &Pack, ctx: &mut Context, path: &str) -> Option<RgbaImage> {
-    match read_png(pack, path)? {
-        Ok(image) => Some(image),
-        Err(e) => {
-            ctx.warn(format!("skipping unreadable texture: {e}"));
-            None
-        }
-    }
-}
-
-pub fn convert(pack: &mut Pack, ctx: &mut Context, direction: Direction) -> Result<()> {
-    convert_water(pack, ctx, direction)?;
-    convert_particles(pack, ctx, direction)?;
-    convert_map_icons(pack, ctx, direction)
+pub fn convert(pack: &mut Pack, ctx: &mut Context, direction: Direction) {
+    convert_water(pack, ctx, direction);
+    convert_particles(pack, ctx, direction);
+    convert_map_icons(pack, ctx, direction);
 }
 
 /// 1.13 tints water by biome, so the textures turned grayscale; 1.12 had the blue baked in.
-fn convert_water(pack: &mut Pack, ctx: &mut Context, direction: Direction) -> Result<()> {
+fn convert_water(pack: &mut Pack, ctx: &mut Context, direction: Direction) {
     /// Blue multiplier of the 1.12 water textures.
     const WATER_TINT: [u32; 3] = [45, 63, 244];
     let directory = match direction {
@@ -36,7 +24,7 @@ fn convert_water(pack: &mut Pack, ctx: &mut Context, direction: Direction) -> Re
     let mut converted = false;
     for name in ["water_still", "water_flow", "water_overlay"] {
         let path = format!("assets/minecraft/textures/{directory}/{name}.png");
-        let Some(mut image) = load(pack, ctx, &path) else {
+        let Some(mut image) = load_png(pack, ctx, &path) else {
             continue;
         };
         for pixel in image.pixels_mut() {
@@ -60,8 +48,7 @@ fn convert_water(pack: &mut Pack, ctx: &mut Context, direction: Direction) -> Re
                 Direction::Down => pixel.0,
             };
         }
-        write_png(pack, &path, &image)?;
-        converted = true;
+        converted |= save_png(pack, ctx, &path, &image);
     }
     if converted {
         ctx.warn(match direction {
@@ -73,28 +60,30 @@ fn convert_water(pack: &mut Pack, ctx: &mut Context, direction: Direction) -> Re
             }
         });
     }
-    Ok(())
 }
 
 /// The 1.13 particle sheet is 256x256 (twice the size of 1.12's 128x128) with the old sprites
 /// in the top-left quadrant, so only the canvas changes.
-fn convert_particles(pack: &mut Pack, ctx: &mut Context, direction: Direction) -> Result<()> {
+fn convert_particles(pack: &mut Pack, ctx: &mut Context, direction: Direction) {
     let path = "assets/minecraft/textures/particle/particles.png";
-    let Some(image) = load(pack, ctx, path) else {
-        return Ok(());
+    let Some(image) = load_png(pack, ctx, path) else {
+        return;
     };
     let size = image.width();
     if image.height() != size || size % 2 != 0 {
         ctx.warn(format!(
             "{path}: particle sheet is not square, left unconverted"
         ));
-        return Ok(());
+        return;
     }
     let converted = match direction {
         Direction::Up => {
-            let mut canvas = RgbaImage::new(size * 2, size * 2);
-            imageops::replace(&mut canvas, &image, 0, 0);
-            canvas
+            let Some(mut sheet) = canvas(ctx, path, size.checked_mul(2), size.checked_mul(2))
+            else {
+                return;
+            };
+            imageops::replace(&mut sheet, &image, 0, 0);
+            sheet
         }
         Direction::Down => {
             let half = size / 2;
@@ -108,7 +97,7 @@ fn convert_particles(pack: &mut Pack, ctx: &mut Context, direction: Direction) -
             kept
         }
     };
-    write_png(pack, path, &converted)
+    save_png(pack, ctx, path, &converted);
 }
 
 /// Icons in the 1.12 sheet. Both sheets store icon `i` row-major, 8 px cells at vanilla scale:
@@ -117,10 +106,10 @@ const MAP_ICON_COUNT: u32 = 10;
 const OLD_COLUMNS: u32 = 4;
 const NEW_COLUMNS: u32 = 16;
 
-fn convert_map_icons(pack: &mut Pack, ctx: &mut Context, direction: Direction) -> Result<()> {
+fn convert_map_icons(pack: &mut Pack, ctx: &mut Context, direction: Direction) {
     let path = "assets/minecraft/textures/map/map_icons.png";
-    let Some(image) = load(pack, ctx, path) else {
-        return Ok(());
+    let Some(image) = load_png(pack, ctx, path) else {
+        return;
     };
     let size = image.width();
     // A 1.12 sheet scaled 4x is as wide as a vanilla-scale 1.13 sheet, so only sizes that
@@ -132,21 +121,23 @@ fn convert_map_icons(pack: &mut Pack, ctx: &mut Context, direction: Direction) -
             ctx.warn(format!(
                 "{path}: map icon sheet size does not match the expected layout, left unconverted"
             ));
-            return Ok(());
+            return;
         }
     };
     if image.height() != size {
         ctx.warn(format!(
             "{path}: map icon sheet is not square, left unconverted"
         ));
-        return Ok(());
+        return;
     }
     let cell = 8 * scale;
     let (from_columns, to_columns, to_size) = match direction {
         Direction::Up => (OLD_COLUMNS, NEW_COLUMNS, size * 4),
         Direction::Down => (NEW_COLUMNS, OLD_COLUMNS, size / 4),
     };
-    let mut canvas = RgbaImage::new(to_size, to_size);
+    let Some(mut sheet) = canvas(ctx, path, Some(to_size), Some(to_size)) else {
+        return;
+    };
     for index in 0..MAP_ICON_COUNT {
         let icon = imageops::crop_imm(
             &image,
@@ -156,7 +147,7 @@ fn convert_map_icons(pack: &mut Pack, ctx: &mut Context, direction: Direction) -
             cell,
         );
         imageops::replace(
-            &mut canvas,
+            &mut sheet,
             &*icon,
             i64::from(index % to_columns * cell),
             i64::from(index / to_columns * cell),
@@ -165,5 +156,5 @@ fn convert_map_icons(pack: &mut Pack, ctx: &mut Context, direction: Direction) -
     if direction == Direction::Up {
         ctx.warn("map icons were repacked into the 1.13 layout; icons added in 1.13 are blank");
     }
-    write_png(pack, path, &canvas)
+    save_png(pack, ctx, path, &sheet);
 }

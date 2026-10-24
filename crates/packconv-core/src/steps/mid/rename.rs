@@ -6,6 +6,7 @@ use std::collections::HashMap;
 use serde_json::{Map, Value};
 
 use crate::step::Context;
+use crate::steps::support::Renamer;
 use crate::util::{read_json, write_json};
 use crate::vfs::Pack;
 
@@ -40,15 +41,17 @@ impl Renames {
     };
 
     pub fn upgrade(&self, pack: &mut Pack, ctx: &mut Context) {
+        let mut renamer = Renamer::default();
         for &(old, new) in self.textures {
-            move_texture(pack, old, new);
+            move_texture(pack, &mut renamer, old, new);
         }
         for &(old, new) in self.models {
-            pack.rename(&model_path(old), &model_path(new));
+            renamer.rename(pack, &model_path(old), &model_path(new));
         }
         for &(old, new) in self.blockstates {
-            pack.rename(&blockstate_path(old), &blockstate_path(new));
+            renamer.rename(pack, &blockstate_path(old), &blockstate_path(new));
         }
+        renamer.report(ctx);
         for &(old, new) in self.texture_copies {
             copy_texture(pack, old, new);
         }
@@ -70,15 +73,17 @@ impl Renames {
     }
 
     pub fn downgrade(&self, pack: &mut Pack, ctx: &mut Context) {
+        let mut renamer = Renamer::default();
         for &(old, new) in self.textures {
-            move_texture(pack, new, old);
+            move_texture(pack, &mut renamer, new, old);
         }
         for &(old, new) in self.models {
-            pack.rename(&model_path(new), &model_path(old));
+            renamer.rename(pack, &model_path(new), &model_path(old));
         }
         for &(old, new) in self.blockstates {
-            pack.rename(&blockstate_path(new), &blockstate_path(old));
+            renamer.rename(pack, &blockstate_path(new), &blockstate_path(old));
         }
+        renamer.report(ctx);
         for &(old, new) in self.texture_copies {
             drop_copy(pack, &texture_files(old), &texture_files(new));
         }
@@ -109,10 +114,10 @@ fn blockstate_path(id: &str) -> String {
     format!("assets/minecraft/blockstates/{id}.json")
 }
 
-/// Moves a texture together with its `.mcmeta`.
-pub fn move_texture(pack: &mut Pack, from: &str, to: &str) {
+/// Moves a texture together with its `.mcmeta`; an existing target is kept.
+pub fn move_texture(pack: &mut Pack, renamer: &mut Renamer, from: &str, to: &str) {
     for (from, to) in texture_files(from).iter().zip(texture_files(to)) {
-        pack.rename(from, &to);
+        renamer.rename(pack, from, &to);
     }
 }
 
@@ -391,5 +396,18 @@ mod tests {
         let warnings = ctx.into_warnings();
         assert_eq!(warnings.len(), 1);
         assert!(warnings[0].contains("models/block/bad.json"));
+    }
+
+    #[test]
+    fn existing_destination_is_kept_and_reported_once() {
+        let mut pack = sample_pack();
+        pack.insert("assets/minecraft/textures/block/new.png", vec![9]);
+        put(&mut pack, "assets/minecraft/models/block/new.json", json!({"parent": "mine"}));
+        let mut ctx = ctx();
+        RENAMES.upgrade(&mut pack, &mut ctx);
+        assert_eq!(pack.get("assets/minecraft/textures/block/new.png"), Some(&[9][..]));
+        assert_eq!(get(&pack, "assets/minecraft/models/block/new.json")["parent"], "mine");
+        assert!(!pack.contains("assets/minecraft/textures/block/old.png"));
+        assert_eq!(ctx.into_warnings().len(), 1);
     }
 }

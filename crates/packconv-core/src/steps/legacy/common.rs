@@ -6,6 +6,7 @@ use std::sync::OnceLock;
 use serde_json::Value;
 
 use crate::step::Context;
+use crate::steps::support::Renamer;
 use crate::util::{read_json, write_json};
 use crate::vfs::Pack;
 
@@ -72,17 +73,6 @@ pub(super) fn update_json(
     }
 }
 
-/// Moves a file, reporting when it replaces an existing one.
-pub(super) fn move_file(pack: &mut Pack, ctx: &mut Context, from: &str, to: &str) {
-    if !pack.contains(from) {
-        return;
-    }
-    if pack.contains(to) {
-        ctx.warn(format!("{to} was overwritten by {from}"));
-    }
-    pack.rename(from, to);
-}
-
 /// The inverse of a list of `(old, new)` texture renames.
 pub(super) fn reversed<'a>(renames: &[(&'a str, &'a str)]) -> Vec<(&'a str, &'a str)> {
     renames.iter().map(|&(old, new)| (new, old)).collect()
@@ -91,16 +81,17 @@ pub(super) fn reversed<'a>(renames: &[(&'a str, &'a str)]) -> Vec<(&'a str, &'a 
 /// Moves vanilla textures and their `.mcmeta`. Paths are `(old, new)` pairs relative to
 /// `assets/minecraft/textures/`, without extension.
 pub(super) fn move_textures(pack: &mut Pack, ctx: &mut Context, renames: &[(&str, &str)]) {
+    let mut renamer = Renamer::default();
     for (from, to) in renames {
         for ext in [".png", ".png.mcmeta"] {
-            move_file(
+            renamer.rename(
                 pack,
-                ctx,
                 &format!("{MC}/textures/{from}{ext}"),
                 &format!("{MC}/textures/{to}{ext}"),
             );
         }
     }
+    renamer.report(ctx);
 }
 
 /// Points the `textures` of a model at the renamed textures. Returns whether it changed.

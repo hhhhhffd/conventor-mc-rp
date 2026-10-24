@@ -5,11 +5,12 @@ use serde_json::Value;
 
 use crate::error::Result;
 use crate::step::{Context, Step};
+use crate::steps::support::Renamer;
 use crate::version::Version;
 use crate::vfs::Pack;
 
 use super::common::{
-    drop_added_files, json_paths, move_file, move_textures, retarget_texture_refs, reversed,
+    drop_added_files, json_paths, move_textures, retarget_texture_refs, reversed,
     update_json,
 };
 
@@ -81,14 +82,14 @@ fn rename_language_files(pack: &mut Pack, ctx: &mut Context, rename: fn(&str) ->
         })
         .map(str::to_string)
         .collect();
+    let mut renamer = Renamer::default();
     for path in langs {
         let (dir, file) = path.rsplit_once('/').expect("path has a directory");
         let code = file.strip_suffix(".lang").expect("filtered on .lang");
         let renamed = format!("{dir}/{}.lang", rename(code));
-        if renamed != path {
-            move_file(pack, ctx, &path, &renamed);
-        }
+        renamer.rename(pack, &path, &renamed);
     }
+    renamer.report(ctx);
 }
 
 /// Replaces spaces by underscores in every asset path. Returns whether any path had one.
@@ -98,9 +99,11 @@ fn replace_spaces_in_paths(pack: &mut Pack, ctx: &mut Context) -> bool {
         .into_iter()
         .filter(|path| path.contains(' '))
         .collect();
+    let mut renamer = Renamer::default();
     for path in &with_spaces {
-        move_file(pack, ctx, path, &path.replace(' ', "_"));
+        renamer.rename(pack, path, &path.replace(' ', "_"));
     }
+    renamer.report(ctx);
     !with_spaces.is_empty()
 }
 

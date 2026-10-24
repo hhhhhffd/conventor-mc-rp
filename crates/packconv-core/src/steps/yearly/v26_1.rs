@@ -3,7 +3,6 @@
 //! only files and the pack's own references to those textures change.
 
 use std::cell::Cell;
-use std::collections::HashMap;
 use std::sync::OnceLock;
 
 use serde_json::Value;
@@ -13,10 +12,6 @@ use crate::error::Result;
 use crate::step::{Context, Step};
 use crate::version::Version;
 use crate::vfs::Pack;
-
-/// Directories whose files are named after the entity texture they replace
-/// (OptiFine/MCPatcher random entities), relative to `assets/minecraft/`.
-const ENTITY_VARIANT_DIRS: [&str; 3] = ["optifine/random/entity/", "optifine/mob/", "mcpatcher/mob/"];
 
 /// `(old, new)` texture ids below `textures/`, without extension.
 fn renames() -> &'static [(&'static str, &'static str)] {
@@ -33,26 +28,6 @@ fn renames() -> &'static [(&'static str, &'static str)] {
 }
 
 pub struct EntityFolders;
-
-/// Moves for random-entity variants: `cat/black2.png` and `cat/black.properties` follow
-/// `entity/cat/black`. The pack's number suffix is kept.
-fn variant_moves(pack: &Pack, ids: &HashMap<&str, &str>) -> Vec<(String, String)> {
-    let mut moves = Vec::new();
-    for dir in ENTITY_VARIANT_DIRS {
-        for path in pack.paths_with_prefix(&format!("{MINECRAFT}{dir}")) {
-            let rest = &path[MINECRAFT.len() + dir.len()..];
-            for ext in [".png", ".properties"] {
-                let Some(stem) = rest.strip_suffix(ext) else { continue };
-                let base = stem.trim_end_matches(|c: char| c.is_ascii_digit());
-                let Some(new) = ids.get(format!("entity/{base}").as_str()).and_then(|id| id.strip_prefix("entity/")) else {
-                    continue;
-                };
-                moves.push((path[MINECRAFT.len()..].to_string(), format!("{dir}{new}{}{ext}", &stem[base.len()..])));
-            }
-        }
-    }
-    moves
-}
 
 /// Since 26.1 a model texture may be `{"sprite": ..., "force_translucent": ...}`; older games
 /// only accept plain strings. Returns whether anything changed; `lost_flag` records a
@@ -73,19 +48,16 @@ fn flatten_texture_objects(model: &mut Value, lost_flag: &Cell<bool>) -> bool {
 
 fn convert(pack: &mut Pack, ctx: &mut Context, up: bool) {
     let pairs: Vec<_> = renames().iter().map(|&(old, new)| if up { (old, new) } else { (new, old) }).collect();
-    let ids: HashMap<_, _> = pairs.iter().copied().collect();
 
-    let mut moves: Vec<(String, String)> =
+    let moves: Vec<(String, String)> =
         pairs.iter().map(|(from, to)| (format!("textures/{from}.png"), format!("textures/{to}.png"))).collect();
-    moves.extend(variant_moves(pack, &ids));
-    move_files(pack, &moves);
+    move_files(pack, ctx, &moves);
 
     let refs = RefMap::new(&pairs);
     let mut files = Vec::new();
     for dir in ["models", "items", "equipment", "atlases"] {
         files.extend(asset_files(pack, dir, &[".json"]));
     }
-    files.extend(asset_files(pack, "optifine/cem", &[".jem", ".jpm"]));
     let lost_flag = Cell::new(false);
     edit_json_files(pack, ctx, files, |json| {
         let renamed = refs.rewrite_all(json);
@@ -151,16 +123,13 @@ mod tests {
         pack.insert("assets/minecraft/textures/entity/bat.png", vec![3]);
         pack.insert("assets/minecraft/textures/entity/rabbit/white.png", vec![4]);
         pack.insert("assets/minecraft/textures/entity/cat/ocelot.png", vec![5]);
-        pack.insert("assets/minecraft/optifine/random/entity/cat/black2.png", vec![6]);
-        pack.insert("assets/minecraft/optifine/random/entity/cat/black.properties", b"textures=1-3".to_vec());
         pack.insert("assets/minecraft/models/item/x.json", br##"{"textures":{"layer0":"minecraft:entity/bat","p":"#layer0"}}"##.to_vec());
-        pack.insert("assets/minecraft/optifine/cem/bat.jem", br#"{"texture":"textures/entity/bat.png"}"#.to_vec());
         pack.insert("assets/minecraft/textures/gui/demo_background.png", vec![7]);
         pack
     }
 
     #[test]
-    fn upgrade_moves_files_variants_and_references() {
+    fn upgrade_moves_files_and_references() {
         let mut pack = sample();
         let mut ctx = context();
         EntityFolders.upgrade(&mut pack, &mut ctx).unwrap();
@@ -170,8 +139,6 @@ mod tests {
             "textures/entity/bat/bat.png",
             "textures/entity/rabbit/rabbit_white.png",
             "textures/entity/cat/ocelot.png",
-            "optifine/random/entity/cat/cat_black2.png",
-            "optifine/random/entity/cat/cat_black.properties",
         ] {
             assert!(pack.contains(&format!("assets/minecraft/{path}")), "{path}");
         }
@@ -179,8 +146,18 @@ mod tests {
         assert!(!pack.contains("assets/minecraft/textures/gui/demo_background.png"));
         let model = String::from_utf8_lossy(pack.get("assets/minecraft/models/item/x.json").unwrap()).into_owned();
         assert!(model.contains("minecraft:entity/bat/bat") && model.contains("#layer0"));
-        let cem = String::from_utf8_lossy(pack.get("assets/minecraft/optifine/cem/bat.jem").unwrap()).into_owned();
-        assert!(cem.contains("textures/entity/bat/bat.png"));
+        assert_eq!(ctx.into_warnings().len(), 1);
+    }
+
+    #[test]
+    fn existing_destination_is_kept() {
+        let mut pack = Pack::new();
+        pack.insert("assets/minecraft/textures/entity/bat.png", vec![1]);
+        pack.insert("assets/minecraft/textures/entity/bat/bat.png", vec![2]);
+        let mut ctx = context();
+        EntityFolders.upgrade(&mut pack, &mut ctx).unwrap();
+        assert_eq!(pack.get("assets/minecraft/textures/entity/bat/bat.png"), Some(&[2][..]));
+        assert!(!pack.contains("assets/minecraft/textures/entity/bat.png"));
         assert_eq!(ctx.into_warnings().len(), 1);
     }
 

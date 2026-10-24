@@ -12,6 +12,21 @@ use std::collections::BTreeSet;
 
 use serde_json::{json, Map, Value};
 
+/// Most decision tree nodes built for one item. Splitting on every predicate multiplies the
+/// tree size (roughly 2^conditions times the product of the thresholds), so an item with many
+/// overrides and predicates would otherwise take unbounded time and memory.
+const NODE_BUDGET: usize = 4096;
+
+struct Budget(usize);
+
+impl Budget {
+    /// Accounts for one more node; `None` when the budget is used up.
+    fn spend(&mut self) -> Option<()> {
+        self.0 = self.0.checked_sub(1)?;
+        Some(())
+    }
+}
+
 /// One override with trivially-true predicates removed.
 #[derive(Clone)]
 struct Entry {
@@ -71,8 +86,9 @@ fn model_node(model: &str) -> Value {
 
 /// Builds the `items/<id>.json` content for a model with `overrides`. `base_model` is the id of
 /// the model file itself. Unsupported predicates are reported through `notes` (once per kind by
-/// the caller) and cause their override to be dropped.
-pub fn overrides_to_definition(item: &str, base_model: &str, overrides: &[Value], notes: &mut BTreeSet<String>) -> Value {
+/// the caller) and cause their override to be dropped. Returns `None` (with a note) when the
+/// definition would need more than [`NODE_BUDGET`] nodes; the item is then left unconverted.
+pub fn overrides_to_definition(item: &str, base_model: &str, overrides: &[Value], notes: &mut BTreeSet<String>) -> Option<Value> {
     let mut entries = Vec::new();
     'overrides: for o in overrides {
         let Some(model) = o.get("model").and_then(Value::as_str) else { continue };
@@ -95,12 +111,18 @@ pub fn overrides_to_definition(item: &str, base_model: &str, overrides: &[Value]
         }
         entries.push(Entry { preds, model: model.to_string() });
     }
-    json!({"model": build(item, &entries, &model_node(base_model))})
+    let mut budget = Budget(NODE_BUDGET);
+    let Some(model) = build(item, &entries, &model_node(base_model), &mut budget) else {
+        notes.insert("item models whose overrides combine too many predicates cannot be converted to item definitions and were left unchanged".into());
+        return None;
+    };
+    Some(json!({"model": model}))
 }
 
 /// Splits on the first predicate present (discrete before numeric) and recurses into each
 /// region of its value, until only override-free entries remain: then the last one wins.
-fn build(item: &str, entries: &[Entry], fallback: &Value) -> Value {
+fn build(item: &str, entries: &[Entry], fallback: &Value, budget: &mut Budget) -> Option<Value> {
+    budget.spend()?;
     let has = |name: &str| entries.iter().any(|e| e.value(name).is_some());
     if let Some((name, property)) = CONDITIONS.iter().find(|(n, _)| has(n)) {
         // A loaded crossbow is never being pulled, so charge overrides only apply while not "pulling".
@@ -108,45 +130,46 @@ fn build(item: &str, entries: &[Entry], fallback: &Value) -> Value {
         let on_true: Vec<Entry> =
             entries.iter().filter(|e| *name != "pulling" || !loaded(e)).map(|e| e.without(&[*name])).collect();
         let on_false: Vec<Entry> = entries.iter().filter(|e| e.value(name).is_none()).cloned().collect();
-        let (on_true, on_false) = (build(item, &on_true, fallback), build(item, &on_false, fallback));
+        let on_true = build(item, &on_true, fallback, budget)?;
+        let on_false = build(item, &on_false, fallback, budget)?;
         if on_true == on_false {
-            return on_true;
+            return Some(on_true);
         }
-        return json!({"type": "minecraft:condition", "property": property, "on_true": on_true, "on_false": on_false});
+        return Some(json!({"type": "minecraft:condition", "property": property, "on_true": on_true, "on_false": on_false}));
     }
     if has("charged") || has("firework") {
-        return build_charge(item, entries, fallback);
+        return build_charge(item, entries, fallback, budget);
     }
     if let Some(name) = NUMERIC.iter().find(|n| has(n)) {
-        return build_numeric(item, name, entries, fallback);
+        return build_numeric(item, name, entries, fallback, budget);
     }
-    entries.last().map_or_else(|| fallback.clone(), |e| model_node(&e.model))
+    Some(entries.last().map_or_else(|| fallback.clone(), |e| model_node(&e.model)))
 }
 
 /// `charged` (loaded) and `firework` (loaded with a rocket) are the states of `charge_type`.
-fn build_charge(item: &str, entries: &[Entry], fallback: &Value) -> Value {
+fn build_charge(item: &str, entries: &[Entry], fallback: &Value, budget: &mut Budget) -> Option<Value> {
     let arrow: Vec<Entry> = entries.iter().filter(|e| e.value("firework").is_none()).map(|e| e.without(&["charged"])).collect();
     let rocket: Vec<Entry> = entries.iter().map(|e| e.without(&["charged", "firework"])).collect();
     let none: Vec<Entry> = entries.iter().filter(|e| e.value("charged").is_none() && e.value("firework").is_none()).cloned().collect();
-    json!({
+    Some(json!({
         "type": "minecraft:select",
         "property": "minecraft:charge_type",
         "cases": [
-            {"when": "arrow", "model": build(item, &arrow, fallback)},
-            {"when": "rocket", "model": build(item, &rocket, fallback)},
+            {"when": "arrow", "model": build(item, &arrow, fallback, budget)?},
+            {"when": "rocket", "model": build(item, &rocket, fallback, budget)?},
         ],
-        "fallback": build(item, &none, fallback),
-    })
+        "fallback": build(item, &none, fallback, budget)?,
+    }))
 }
 
-fn build_numeric(item: &str, name: &str, entries: &[Entry], fallback: &Value) -> Value {
+fn build_numeric(item: &str, name: &str, entries: &[Entry], fallback: &Value, budget: &mut Budget) -> Option<Value> {
     let mut thresholds: Vec<f64> = entries.iter().filter_map(|e| e.value(name)).collect();
     thresholds.sort_by(f64::total_cmp);
     thresholds.dedup();
 
     // A region is the value range starting at `threshold`; the entries active there are those
     // without the predicate or with a threshold at or below the region start.
-    let region = |threshold: Option<f64>| {
+    let mut region = |threshold: Option<f64>| {
         let active: Vec<Entry> = entries
             .iter()
             .filter(|e| match (e.value(name), threshold) {
@@ -156,20 +179,20 @@ fn build_numeric(item: &str, name: &str, entries: &[Entry], fallback: &Value) ->
             })
             .map(|e| e.without(&[name]))
             .collect();
-        build(item, &active, fallback)
+        build(item, &active, fallback, budget)
     };
-    let below_all = region(None);
+    let below_all = region(None)?;
     let mut dispatch_entries: Vec<Value> = Vec::new();
     let mut previous = below_all.clone();
     for t in thresholds {
-        let node = region(Some(t));
+        let node = region(Some(t))?;
         if node != previous {
             dispatch_entries.push(json!({"threshold": number(t), "model": node.clone()}));
             previous = node;
         }
     }
     if dispatch_entries.is_empty() {
-        return below_all;
+        return Some(below_all);
     }
     let dispatch = |extra: Map<String, Value>| {
         let mut node = Map::new();
@@ -180,7 +203,7 @@ fn build_numeric(item: &str, name: &str, entries: &[Entry], fallback: &Value) ->
         Value::Object(node)
     };
     let props = |pairs: &[(&str, Value)]| pairs.iter().map(|(k, v)| (k.to_string(), v.clone())).collect::<Map<_, _>>();
-    match name {
+    Some(match name {
         // Bow pull is ticks used / 20, i.e. `use_duration` scaled by 1/20.
         "pull" if item == "crossbow" => dispatch(props(&[("property", "minecraft:crossbow/pull".into())])),
         "pull" => dispatch(props(&[("property", "minecraft:use_duration".into()), ("scale", json!(0.05))])),
@@ -205,7 +228,7 @@ fn build_numeric(item: &str, name: &str, entries: &[Entry], fallback: &Value) ->
             }
         }
         _ => unreachable!("numeric predicate table and match are in sync"),
-    }
+    })
 }
 
 // ---------------------------------------------------------------- down
@@ -360,6 +383,7 @@ mod tests {
     fn up(item: &str, overrides: Value) -> Value {
         let mut notes = BTreeSet::new();
         overrides_to_definition(item, &format!("minecraft:item/{item}"), overrides.as_array().unwrap(), &mut notes)
+            .expect("within the node budget")
     }
 
     fn down(item: &str, def: &Value) -> Flattened {
@@ -458,10 +482,36 @@ mod tests {
             .as_array()
             .unwrap(),
             &mut notes,
-        );
+        )
+        .unwrap();
         assert_eq!(notes.len(), 1);
         assert_eq!(def["model"]["property"], "minecraft:damaged");
         assert_eq!(def["model"]["on_true"]["property"], "minecraft:damage");
+    }
+
+    #[test]
+    fn pathological_overrides_hit_the_node_budget_quickly() {
+        // 40 overrides, each combining all discrete predicates with distinct numeric thresholds:
+        // the unbounded decision tree has far more than 2^7 * 40^3 nodes.
+        let overrides: Vec<Value> = (1..=40)
+            .map(|i| {
+                let t = f64::from(i) / 100.0;
+                json!({
+                    "predicate": {
+                        "pulling": 1, "blocking": 1, "throwing": 1, "tooting": 1, "cast": 1,
+                        "broken": 1, "damaged": 1, "pull": t, "damage": t, "cooldown": t,
+                        "custom_model_data": i,
+                    },
+                    "model": format!("item/m{i}"),
+                })
+            })
+            .collect();
+        let mut notes = BTreeSet::new();
+        let started = std::time::Instant::now();
+        let definition = overrides_to_definition("stick", "minecraft:item/stick", &overrides, &mut notes);
+        assert!(definition.is_none());
+        assert_eq!(notes.len(), 1);
+        assert!(started.elapsed() < std::time::Duration::from_secs(5));
     }
 
     #[test]
