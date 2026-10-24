@@ -1,0 +1,36 @@
+[
+  {
+    "path": "entity/explosion.png", "width": 128, "height": 128,
+    "textures": [
+      {"path": "particle/explosion_0.png", "box": {"x": 0, "y": 0, "width": 32, "height": 32}},
+      {"path": "particle/explosion_1.png", "box": {"x": 32, "y": 0, "width": 32, "height": 32}},
+      {"path": "particle/explosion_2.png", "box": {"x": 64, "y": 0, "width": 32, "height": 32}},
+      {"path": "particle/explosion_3.png", "box": {"x": 96, "y": 0, "width": 32, "height": 32}},
+      {"path": "particle/explosion_4.png", "box": {"x": 0, "y": 32, "width": 32, "height": 32}},
+      {"path": "particle/explosion_5.png", "box": {"x": 32, "y": 32, "width": 32, "height": 32}},
+      {"path": "particle/explosion_6.png", "box": {"x": 64, "y": 32, "width": 32, "height": 32}},
+      {"path": "particle/explosion_7.png", "box": {"x": 96, "y": 32, "width": 32, "height": 32}},
+      {"path": "particle/explosion_8.png", "box": {"x": 0, "y": 64, "width": 32, "height": 32}},
+      {"path": "particle/explosion_9.png", "box": {"x": 32, "y": 64, "width": 32, "height": 32}},
+      {"path": "particle/explosion_10.png", "box": {"x": 64, "y": 64, "width": 32, "height": 32}},
+      {"path": "particle/explosion_11.png", "box": {"x": 96, "y": 64, "width": 32, "height": 32}},
+      {"path": "particle/explosion_12.png", "box": {"x": 0, "y": 96, "width": 32, "height": 32}},
+      {"path": "particle/explosion_13.png", "box": {"x": 32, "y": 96, "width": 32, "height": 32}},
+      {"path": "particle/explosion_14.png", "box": {"x": 64, "y": 96, "width": 32, "height": 32}},
+      {"path": "particle/explosion_15.png", "box": {"x": 96, "y": 96, "width": 32, "height": 32}}
+    ]
+  },
+  {
+    "path": "entity/sweep.png", "width": 128, "height": 32,
+    "textures": [
+      {"path": "particle/sweep_0.png", "square": true, "box": {"x": 0, "y": 0, "width": 32, "height": 16}},
+      {"path": "particle/sweep_1.png", "square": true, "box": {"x": 32, "y": 0, "width": 32, "height": 16}},
+      {"path": "particle/sweep_2.png", "square": true, "box": {"x": 64, "y": 0, "width": 32, "height": 16}},
+      {"path": "particle/sweep_3.png", "square": true, "box": {"x": 96, "y": 0, "width": 32, "height": 16}},
+      {"path": "particle/sweep_4.png", "square": true, "box": {"x": 0, "y": 16, "width": 32, "height": 16}},
+      {"path": "particle/sweep_5.png", "square": true, "box": {"x": 32, "y": 16, "width": 32, "height": 16}},
+      {"path": "particle/sweep_6.png", "square": true, "box": {"x": 64, "y": 16, "width": 32, "height": 16}},
+      {"path": "particle/sweep_7.png", "square": true, "box": {"x": 96, "y": 16, "width": 32, "height": 16}}
+    ]
+  }
+]
