@@ -102,6 +102,10 @@ const RELEASES: &[(Version, PackFormat)] = &[
     (Version(1, 21, 9), PackFormat(69, 0)),
     (Version(1, 21, 10), PackFormat(69, 0)),
     (Version(1, 21, 11), PackFormat(75, 0)),
+    (Version(26, 1, 0), PackFormat(84, 0)),
+    (Version(26, 1, 1), PackFormat(84, 0)),
+    (Version(26, 1, 2), PackFormat(84, 0)),
+    (Version(26, 2, 0), PackFormat(88, 0)),
 ];
 
 pub fn releases() -> impl Iterator<Item = (Version, PackFormat)> {

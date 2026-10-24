@@ -96,10 +96,14 @@ pub fn write_target_meta(pack: &mut Pack, format: PackFormat) -> Result<()> {
     let mut meta = read_meta(pack)?;
     let section = meta["pack"].as_object_mut().expect("checked object");
     let mut out = Map::new();
-    out.insert("pack_format".into(), json!(format.0));
     if format >= MIN_MAX_FORMAT_SINCE {
-        out.insert("min_format".into(), json!([format.0, format.1]));
-        out.insert("max_format".into(), json!([format.0, format.1]));
+        // Since 25w31a the range replaces `pack_format`. An integer `max_format` covers
+        // every minor revision of that major format.
+        let min = if format.1 == 0 { json!(format.0) } else { json!([format.0, format.1]) };
+        out.insert("min_format".into(), min);
+        out.insert("max_format".into(), json!(format.0));
+    } else {
+        out.insert("pack_format".into(), json!(format.0));
     }
     out.insert("description".into(), section.remove("description").unwrap_or(json!("")));
     // Keep any other author-provided fields (e.g. unknown future keys) untouched.
@@ -157,7 +161,7 @@ mod tests {
         );
         write_target_meta(&mut p, PackFormat(75, 0)).unwrap();
         let m = read_meta(&p).unwrap();
-        assert_eq!(m["pack"], json!({"pack_format":75,"min_format":[75,0],"max_format":[75,0],"description":"d"}));
+        assert_eq!(m["pack"], json!({"min_format":75,"max_format":75,"description":"d"}));
         assert!(m.get("language").is_some());
     }
 }
