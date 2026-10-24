@@ -1,6 +1,10 @@
 use packconv_core::{ConvertOptions, Limits};
 use wasm_bindgen::prelude::*;
 
+/// wasm32 has a 4 GiB address space shared with the page, so unpacked size is capped lower
+/// than on the server.
+const WASM_LIMITS: Limits = Limits { max_entries: 100_000, max_total_size: 256 * 1024 * 1024 };
+
 /// Result of a conversion: the converted pack as ZIP bytes plus a JSON report.
 #[wasm_bindgen]
 pub struct ConvertResult {
@@ -27,7 +31,7 @@ impl ConvertResult {
 /// `pack.mcmeta` when omitted.
 #[wasm_bindgen]
 pub fn convert(input: &[u8], to: String, from: Option<String>) -> Result<ConvertResult, JsError> {
-    let options = ConvertOptions { from, to, limits: Limits::default(), cancel: None };
+    let options = ConvertOptions { from, to, limits: WASM_LIMITS, cancel: None };
     let output = packconv_core::convert(input, &options)?;
     let report = serde_json::to_string(&output.report)?;
     Ok(ConvertResult { zip: output.zip, report })

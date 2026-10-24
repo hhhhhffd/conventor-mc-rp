@@ -1,18 +1,25 @@
 use std::net::SocketAddr;
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::Arc;
+use std::time::Duration;
 
-use axum::body::Bytes;
-use axum::extract::{DefaultBodyLimit, Query, State};
+use axum::body::Body;
+use axum::extract::{Query, State};
 use axum::http::{header, HeaderValue, StatusCode};
 use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post};
 use axum::{Json, Router};
-use packconv_core::{convert, supported_versions, ConvertOptions, Limits};
+use packconv_core::{convert, supported_versions, ConvertOptions, Error, Limits};
 use serde::Deserialize;
 use tokio::sync::Semaphore;
 
 struct AppState {
-    jobs: Semaphore,
+    jobs: Arc<Semaphore>,
+    /// Requests currently waiting for or holding a job slot.
+    queued: AtomicUsize,
+    max_queue: usize,
+    max_upload: usize,
+    timeout: Duration,
     limits: Limits,
 }
 
@@ -38,10 +45,14 @@ async fn main() {
         .init();
 
     let addr: SocketAddr = env_or("PACKCONV_ADDR", "0.0.0.0:8080".parse().unwrap());
-    let max_upload: usize = env_or("PACKCONV_MAX_UPLOAD", 256 * 1024 * 1024);
     let default_jobs = std::thread::available_parallelism().map_or(2, |n| n.get());
+    let jobs = env_or("PACKCONV_MAX_JOBS", default_jobs).max(1);
     let state = Arc::new(AppState {
-        jobs: Semaphore::new(env_or("PACKCONV_MAX_JOBS", default_jobs)),
+        jobs: Arc::new(Semaphore::new(jobs)),
+        queued: AtomicUsize::new(0),
+        max_queue: env_or("PACKCONV_MAX_QUEUE", jobs * 8),
+        max_upload: env_or("PACKCONV_MAX_UPLOAD", 128 * 1024 * 1024),
+        timeout: Duration::from_secs(env_or("PACKCONV_TIMEOUT_SECS", 120)),
         limits: Limits {
             max_entries: env_or("PACKCONV_MAX_ENTRIES", Limits::default().max_entries),
             max_total_size: env_or("PACKCONV_MAX_UNPACKED", Limits::default().max_total_size),
@@ -52,17 +63,45 @@ async fn main() {
         .route("/health", get(|| async { "ok" }))
         .route("/versions", get(|| async { Json(supported_versions()) }))
         .route("/convert", post(convert_handler))
-        .layer(DefaultBodyLimit::max(max_upload))
         .with_state(state);
 
     let listener = tokio::net::TcpListener::bind(addr).await.expect("failed to bind");
     tracing::info!("listening on {addr}");
     axum::serve(listener, app)
-        .with_graceful_shutdown(async {
-            let _ = tokio::signal::ctrl_c().await;
-        })
+        .with_graceful_shutdown(shutdown_signal())
         .await
         .expect("server error");
+}
+
+async fn shutdown_signal() {
+    let ctrl_c = async {
+        let _ = tokio::signal::ctrl_c().await;
+    };
+    #[cfg(unix)]
+    let terminate = async {
+        let mut sig = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())
+            .expect("failed to install SIGTERM handler");
+        sig.recv().await;
+    };
+    #[cfg(not(unix))]
+    let terminate = std::future::pending::<()>();
+    tokio::select! {
+        () = ctrl_c => {},
+        () = terminate => {},
+    }
+}
+
+fn error(status: StatusCode, message: impl Into<String>) -> Response {
+    (status, Json(serde_json::json!({ "error": message.into() }))).into_response()
+}
+
+/// Decrements the queue counter however the request ends (including client disconnects).
+struct QueueSlot<'a>(&'a AtomicUsize);
+
+impl Drop for QueueSlot<'_> {
+    fn drop(&mut self) {
+        self.0.fetch_sub(1, Ordering::Relaxed);
+    }
 }
 
 /// `POST /convert?to=<version>[&from=<version>]` with the raw ZIP/RAR archive as the body.
@@ -70,13 +109,45 @@ async fn main() {
 async fn convert_handler(
     State(state): State<Arc<AppState>>,
     Query(query): Query<ConvertQuery>,
-    body: Bytes,
+    body: Body,
 ) -> Response {
-    let Ok(_permit) = state.jobs.acquire().await else {
-        return (StatusCode::SERVICE_UNAVAILABLE, "shutting down").into_response();
+    if state.queued.fetch_add(1, Ordering::Relaxed) >= state.max_queue {
+        state.queued.fetch_sub(1, Ordering::Relaxed);
+        return error(StatusCode::TOO_MANY_REQUESTS, "server busy, retry later");
+    }
+    let _slot = QueueSlot(&state.queued);
+
+    // The permit is taken before the body is read so concurrent uploads cannot pile up in
+    // memory, and it moves into the blocking task so it is held until the work really ends.
+    let Ok(permit) = state.jobs.clone().acquire_owned().await else {
+        return error(StatusCode::SERVICE_UNAVAILABLE, "shutting down");
     };
-    let options = ConvertOptions { from: query.from, to: query.to, limits: state.limits, cancel: None };
-    let result = tokio::task::spawn_blocking(move || convert(&body, &options)).await;
+    let input = match axum::body::to_bytes(body, state.max_upload).await {
+        Ok(bytes) => bytes,
+        Err(_) => return error(StatusCode::PAYLOAD_TOO_LARGE, "upload too large or interrupted"),
+    };
+
+    let cancel = Arc::new(AtomicBool::new(false));
+    let options = ConvertOptions {
+        from: query.from,
+        to: query.to,
+        limits: state.limits,
+        cancel: Some(cancel.clone()),
+    };
+    let task = tokio::task::spawn_blocking(move || {
+        let _permit = permit;
+        convert(&input, &options)
+    });
+    // Dropping the handler (client gone) must also stop the work, not just the waiting.
+    let _cancel_on_drop = CancelOnDrop(cancel.clone());
+
+    let result = match tokio::time::timeout(state.timeout, task).await {
+        Ok(joined) => joined,
+        Err(_) => {
+            cancel.store(true, Ordering::Relaxed);
+            return error(StatusCode::GATEWAY_TIMEOUT, "conversion took too long");
+        }
+    };
 
     match result {
         Ok(Ok(output)) => {
@@ -97,14 +168,19 @@ async fn convert_handler(
             }
             response
         }
-        Ok(Err(err)) => {
-            (StatusCode::UNPROCESSABLE_ENTITY, Json(serde_json::json!({ "error": err.to_string() })))
-                .into_response()
-        }
+        Ok(Err(Error::Cancelled)) => error(StatusCode::GATEWAY_TIMEOUT, "conversion took too long"),
+        Ok(Err(err)) => error(StatusCode::UNPROCESSABLE_ENTITY, err.to_string()),
         Err(err) => {
             tracing::error!("conversion task failed: {err}");
-            (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({ "error": "internal error" })))
-                .into_response()
+            error(StatusCode::INTERNAL_SERVER_ERROR, "internal error")
         }
+    }
+}
+
+struct CancelOnDrop(Arc<AtomicBool>);
+
+impl Drop for CancelOnDrop {
+    fn drop(&mut self) {
+        self.0.store(true, Ordering::Relaxed);
     }
 }

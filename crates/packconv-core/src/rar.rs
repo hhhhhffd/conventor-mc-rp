@@ -20,10 +20,17 @@ impl Write for SharedBuf {
     }
 }
 
+const RAR5_MAX_DICTIONARY: u64 = 256 * 1024 * 1024;
+
 /// Extracts a RAR (1.3/4/5) archive in a single sequential pass, which keeps
 /// solid archives linear instead of re-decoding predecessors per member.
 pub(crate) fn read_rar(bytes: &[u8], limits: Limits) -> Result<Pack> {
-    let options = rars::ArchiveReadOptions::new().with_max_total_output_bytes(limits.max_total_size);
+    // Bound header parsing and the RAR5 dictionary too: both are allocated from header
+    // fields before any output limit applies.
+    let options = rars::ArchiveReadOptions::new()
+        .with_max_total_output_bytes(limits.max_total_size)
+        .with_max_header_count(limits.max_entries as u64 + 16)
+        .with_rar50_dictionary_size_limit(RAR5_MAX_DICTIONARY);
     let archive = rars::ArchiveReader::read_with_options(bytes, options)
         .map_err(|e| Error::Rar(e.to_string()))?;
 
@@ -31,6 +38,9 @@ pub(crate) fn read_rar(bytes: &[u8], limits: Limits) -> Result<Pack> {
     archive
         .extract_to_with_options(options, |meta| {
             let buf = Rc::new(RefCell::new(Vec::new()));
+            if entries.len() >= limits.max_entries {
+                return Err(rars::Error::InvalidHeader("too many entries"));
+            }
             if !meta.is_directory {
                 entries.push((meta.name_lossy(), buf.clone()));
             }

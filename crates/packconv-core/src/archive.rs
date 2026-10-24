@@ -13,8 +13,8 @@ pub struct Limits {
 impl Default for Limits {
     fn default() -> Self {
         Self {
-            max_entries: 200_000,
-            max_total_size: 1024 * 1024 * 1024,
+            max_entries: 100_000,
+            max_total_size: 512 * 1024 * 1024,
         }
     }
 }
@@ -54,23 +54,26 @@ pub(crate) struct Collector {
     pack: Pack,
     limits: Limits,
     total: u64,
+    /// Raw entries seen, including duplicates and rejected names.
+    entries: usize,
 }
 
 impl Collector {
     pub(crate) fn new(limits: Limits) -> Self {
-        Self { pack: Pack::new(), limits, total: 0 }
+        Self { pack: Pack::new(), limits, total: 0, entries: 0 }
     }
 
     /// Reads one entry through `reader`, never more than the remaining size budget.
     pub(crate) fn add(&mut self, name: &str, reader: &mut dyn Read) -> Result<()> {
         let remaining = self.limits.max_total_size - self.total;
         let mut data = Vec::new();
-        reader.take(remaining + 1).read_to_end(&mut data)?;
+        reader.take(remaining.saturating_add(1)).read_to_end(&mut data)?;
         self.add_bytes(name, data)
     }
 
     pub(crate) fn add_bytes(&mut self, name: &str, data: Vec<u8>) -> Result<()> {
-        if self.pack.len() >= self.limits.max_entries {
+        self.entries += 1;
+        if self.entries > self.limits.max_entries {
             return Err(Error::LimitExceeded("too many entries"));
         }
         self.total += data.len() as u64;
@@ -90,6 +93,9 @@ impl Collector {
 
 fn read_zip(bytes: &[u8], limits: Limits) -> Result<Pack> {
     let mut archive = zip::ZipArchive::new(Cursor::new(bytes))?;
+    if archive.len() > limits.max_entries {
+        return Err(Error::LimitExceeded("too many entries"));
+    }
     let mut collector = Collector::new(limits);
     for i in 0..archive.len() {
         let mut entry = archive.by_index(i)?;

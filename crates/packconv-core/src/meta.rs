@@ -81,7 +81,16 @@ pub fn flatten_overlays(pack: &mut Pack, format: PackFormat) -> Result<()> {
         return Ok(());
     };
     for entry in entries.as_array().into_iter().flatten() {
-        let Some(dir) = entry.get("directory").and_then(Value::as_str) else { continue };
+        // The game only accepts `[a-z0-9_.-]+` directory names; anything else (e.g. "assets")
+        // could make us move or delete the pack root itself.
+        let Some(dir) = entry
+            .get("directory")
+            .and_then(Value::as_str)
+            .filter(|d| !d.is_empty() && d.bytes().all(|b| matches!(b, b'a'..=b'z' | b'0'..=b'9' | b'_' | b'-' | b'.')))
+            .filter(|d| *d != "assets" && *d != "." && *d != "..")
+        else {
+            continue;
+        };
         let range = entry.get("formats").and_then(parse_range).or_else(|| {
             let min = entry.get("min_format").and_then(parse_format)?;
             let max = entry.get("max_format").and_then(parse_format)?;
