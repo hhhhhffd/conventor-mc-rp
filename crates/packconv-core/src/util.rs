@@ -99,9 +99,22 @@ mod tests {
         RgbaImage::new(1, 1).write_to(&mut Cursor::new(&mut png), ImageFormat::Png).unwrap();
         png[16..20].copy_from_slice(&20000u32.to_be_bytes());
         png[20..24].copy_from_slice(&20000u32.to_be_bytes());
+        let crc = crc32(&png[12..29]);
+        png[29..33].copy_from_slice(&crc.to_be_bytes());
         let mut pack = Pack::new();
         pack.insert("a.png", png);
         let err = read_png(&pack, "a.png").unwrap().unwrap_err().to_string();
-        assert!(err.contains("too large") || err.contains("a.png"), "{err}");
+        assert!(err.contains("too large"), "{err}");
+    }
+
+    fn crc32(data: &[u8]) -> u32 {
+        let mut crc = !0u32;
+        for &byte in data {
+            crc ^= u32::from(byte);
+            for _ in 0..8 {
+                crc = if crc & 1 != 0 { (crc >> 1) ^ 0xEDB8_8320 } else { crc >> 1 };
+            }
+        }
+        !crc
     }
 }
