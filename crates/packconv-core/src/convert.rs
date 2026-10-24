@@ -70,13 +70,23 @@ fn format_name(format: PackFormat) -> String {
     }
 }
 
-/// Guesses the source version from the declared format. Format 1 covers both 1.7 (no block
-/// models) and 1.8, so the presence of models disambiguates.
-fn detect_version(pack: &Pack, format: PackFormat) -> Version {
-    if format <= PackFormat(1, 0) && pack.paths_with_prefix("assets/minecraft/models/").is_empty() {
-        return Version(1, 7, 10);
+/// Picks the source version from the declared format range. When the target is inside the
+/// range the author already claims compatibility, so nothing needs converting; otherwise the
+/// range end nearest to the target is used. Format 1 covers both 1.7 (no block models) and
+/// 1.8, so the presence of models disambiguates.
+fn detect_version(pack: &Pack, (min, max): (PackFormat, PackFormat), to: Version) -> Result<Version> {
+    if max <= PackFormat(1, 0) {
+        let has_models = !pack.paths_with_prefix("assets/minecraft/models/").is_empty();
+        return Ok(if has_models { Version(1, 8, 9) } else { Version(1, 7, 10) });
     }
-    version::version_for_format(format)
+    let target = version::pack_format(to)?;
+    if target < min {
+        Ok(version::version_for_format(min))
+    } else if target > max {
+        Ok(version::version_for_format(max))
+    } else {
+        Ok(to)
+    }
 }
 
 fn remove_junk(pack: &mut Pack) {
@@ -99,13 +109,13 @@ pub fn convert_pack(pack: &mut Pack, from: Option<Version>, to: Version) -> Resu
     let files_in = pack.len();
     remove_junk(pack);
 
-    let declared = meta::declared_format(pack)?;
+    let declared = meta::declared_range(pack)?;
     let from = match from {
         Some(v) => {
             version::pack_format(v)?;
             v
         }
-        None => detect_version(pack, declared),
+        None => detect_version(pack, declared, to)?,
     };
     meta::flatten_overlays(pack, version::pack_format(from)?)?;
 

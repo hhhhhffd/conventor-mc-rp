@@ -4,7 +4,7 @@ use serde_json::{json, Map, Value};
 
 use crate::error::{Error, Result};
 use crate::util::{read_json, write_json};
-use crate::version::{self, PackFormat, MIN_MAX_FORMAT_SINCE};
+use crate::version::{PackFormat, MIN_MAX_FORMAT_SINCE};
 use crate::vfs::Pack;
 
 const META: &str = "pack.mcmeta";
@@ -45,20 +45,28 @@ fn parse_range(value: &Value) -> Option<(PackFormat, PackFormat)> {
     }
 }
 
-/// Format the pack declares. A `max_format` within known releases is the layout the author
-/// targeted; open-ended ranges (e.g. `"max_format": 1000`) fall back to `pack_format` and
-/// then `min_format`.
-pub fn declared_format(pack: &Pack) -> Result<PackFormat> {
+/// Inclusive format range the pack declares compatibility with. `pack_format` alone is a
+/// single-format range; `supported_formats` and `min_format`/`max_format` widen it.
+pub fn declared_range(pack: &Pack) -> Result<(PackFormat, PackFormat)> {
     let meta = read_meta(pack)?;
     let section = &meta["pack"];
-    let newest = version::pack_format(version::newest())?;
-    section
+    let pack_format = section.get("pack_format").and_then(parse_format);
+    let supported = section.get("supported_formats").and_then(parse_range);
+    let min = section
+        .get("min_format")
+        .and_then(parse_format)
+        .or(supported.map(|r| r.0))
+        .or(pack_format);
+    let max = section
         .get("max_format")
         .and_then(parse_format)
-        .filter(|f| *f <= newest)
-        .or_else(|| section.get("pack_format").and_then(parse_format))
-        .or_else(|| section.get("min_format").and_then(parse_format))
-        .ok_or_else(|| Error::PackMeta("no pack_format".into()))
+        .or(supported.map(|r| r.1))
+        .or(pack_format);
+    match (min, max) {
+        (Some(min), Some(max)) if min <= max => Ok((min, max)),
+        (Some(min), Some(max)) => Ok((max, min)),
+        _ => Err(Error::PackMeta("no pack_format".into())),
+    }
 }
 
 /// Applies the overlays that would be active for `format` onto the pack root and removes
@@ -155,14 +163,15 @@ mod tests {
 
     #[test]
     fn declared_formats() {
+        let f = |n| PackFormat(n, 0);
         let p = pack_with_meta(r#"{"pack":{"pack_format":15,"description":"x"}}"#);
-        assert_eq!(declared_format(&p).unwrap(), PackFormat(15, 0));
-        let p = pack_with_meta(r#"{"pack":{"min_format":[69,0],"max_format":[75,0]}}"#);
-        assert_eq!(declared_format(&p).unwrap(), PackFormat(75, 0));
-        let p = pack_with_meta(r#"{"pack":{"min_format":69,"max_format":1000}}"#);
-        assert_eq!(declared_format(&p).unwrap(), PackFormat(69, 0));
+        assert_eq!(declared_range(&p).unwrap(), (f(15), f(15)));
+        let p = pack_with_meta(r#"{"pack":{"pack_format":15,"supported_formats":[15,18]}}"#);
+        assert_eq!(declared_range(&p).unwrap(), (f(15), f(18)));
+        let p = pack_with_meta(r#"{"pack":{"min_format":[69,0],"max_format":1000}}"#);
+        assert_eq!(declared_range(&p).unwrap(), (f(69), f(1000)));
         let p = pack_with_meta("\u{feff}{\"pack\":{\"pack_format\":1}}");
-        assert_eq!(declared_format(&p).unwrap(), PackFormat(1, 0));
+        assert_eq!(declared_range(&p).unwrap(), (f(1), f(1)));
     }
 
     #[test]
