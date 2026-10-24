@@ -36,7 +36,9 @@ fn env_or<T: std::str::FromStr>(name: &str, default: T) -> T {
     }
 }
 
-#[tokio::main]
+// Conversion work runs on the blocking pool (bounded by the job semaphore); the async side only
+// moves bytes, so one runtime thread is enough even on small 1-core servers.
+#[tokio::main(flavor = "current_thread")]
 async fn main() {
     tracing_subscriber::fmt()
         .with_env_filter(
@@ -45,14 +47,14 @@ async fn main() {
         .init();
 
     let addr: SocketAddr = env_or("PACKCONV_ADDR", "0.0.0.0:8080".parse().unwrap());
-    let default_jobs = std::thread::available_parallelism().map_or(2, |n| n.get());
-    let jobs = env_or("PACKCONV_MAX_JOBS", default_jobs).max(1);
+    // Defaults target a small VPS (1 core): one conversion at a time, a short queue.
+    let jobs = env_or("PACKCONV_MAX_JOBS", 1usize).max(1);
     let state = Arc::new(AppState {
         jobs: Arc::new(Semaphore::new(jobs)),
         queued: AtomicUsize::new(0),
-        max_queue: env_or("PACKCONV_MAX_QUEUE", jobs * 8),
+        max_queue: env_or("PACKCONV_MAX_QUEUE", jobs * 4),
         max_upload: env_or("PACKCONV_MAX_UPLOAD", 128 * 1024 * 1024),
-        timeout: Duration::from_secs(env_or("PACKCONV_TIMEOUT_SECS", 120)),
+        timeout: Duration::from_secs(env_or("PACKCONV_TIMEOUT_SECS", 300)),
         limits: Limits {
             max_entries: env_or("PACKCONV_MAX_ENTRIES", Limits::default().max_entries),
             max_total_size: env_or("PACKCONV_MAX_UNPACKED", Limits::default().max_total_size),
