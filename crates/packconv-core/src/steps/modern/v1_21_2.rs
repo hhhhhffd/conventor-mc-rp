@@ -20,13 +20,13 @@ impl Step for V1_21_2 {
         Version::new(1, 21, 2)
     }
 
-    fn upgrade(&self, pack: &mut Pack, _ctx: &mut Context) -> Result<()> {
-        move_textures(pack, &parse_pairs(TABLE));
+    fn upgrade(&self, pack: &mut Pack, ctx: &mut Context) -> Result<()> {
+        move_textures(pack, ctx, &parse_pairs(TABLE));
         Ok(())
     }
 
     fn downgrade(&self, pack: &mut Pack, ctx: &mut Context) -> Result<()> {
-        move_textures(pack, &reversed(&parse_pairs(TABLE)));
+        move_textures(pack, ctx, &reversed(&parse_pairs(TABLE)));
         let has_definitions = pack.paths().any(|p| p.starts_with("assets/") && p.contains("/models/equipment/"));
         if has_definitions {
             ctx.warn("equipment model definitions (models/equipment) do not exist before 1.21.2; custom armor layers were not converted");

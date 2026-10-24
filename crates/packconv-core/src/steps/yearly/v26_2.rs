@@ -13,7 +13,8 @@ use serde::Deserialize;
 use super::common::{asset_files, directed, edit_json_files, move_files, uses_item_model_type, Pairs, RefMap, MINECRAFT};
 use crate::error::Result;
 use crate::step::{Context, Step};
-use crate::util::{namespaces, read_png, write_png};
+use crate::steps::support::{canvas, load_png, max_scale, save_png, PixelBudget};
+use crate::util::{namespaces, new_canvas};
 use crate::version::Version;
 use crate::vfs::Pack;
 
@@ -118,42 +119,34 @@ fn full(path: &str) -> String {
     format!("{MINECRAFT}{path}")
 }
 
-/// Cuts one output out of a sheet using Mojang's integer arithmetic (`value * size / reference`).
+/// Cuts one output out of a sheet using Mojang's integer arithmetic (`value * size / reference`),
+/// in 64 bits because a wide sheet times a coordinate overflows `u32`.
 /// Returns `None` when the sheet is too small for the layout.
 fn slice(sheet: &RgbaImage, reference: [u32; 2], output: &Output) -> Option<RgbaImage> {
     let (width, height) = sheet.dimensions();
-    let scale_x = |v: u32| v * width / reference[0];
-    let scale_y = |v: u32| v * height / reference[1];
-    let mut canvas = RgbaImage::new(scale_x(output.canvas[0]), scale_y(output.canvas[1]));
-    if canvas.width() == 0 || canvas.height() == 0 {
-        return None;
-    }
+    let scale = |v: u32, size: u32, reference: u32| u32::try_from(u64::from(v) * u64::from(size) / u64::from(reference.max(1))).ok();
+    let (scale_x, scale_y) = (|v| scale(v, width, reference[0]), |v| scale(v, height, reference[1]));
+    let mut canvas = new_canvas(scale_x(output.canvas[0])?, scale_y(output.canvas[1])?).ok()?;
     for part in &output.parts {
         let [x, y, w, h] = part.src;
-        let (x, y, w, h) = (scale_x(x), scale_y(y), scale_x(w), scale_y(h));
-        if w == 0 || h == 0 || x + w > width || y + h > height {
+        let (x, y, w, h) = (scale_x(x)?, scale_y(y)?, scale_x(w)?, scale_y(h)?);
+        let inside = x.checked_add(w).is_some_and(|right| right <= width) && y.checked_add(h).is_some_and(|bottom| bottom <= height);
+        if w == 0 || h == 0 || !inside {
             return None;
         }
         let mut piece = imageops::crop_imm(sheet, x, y, w, h).to_image();
         for transform in &part.transforms {
             piece = transform.apply(&piece);
         }
-        imageops::replace(&mut canvas, &piece, i64::from(scale_x(part.dst[0])), i64::from(scale_y(part.dst[1])));
+        imageops::replace(&mut canvas, &piece, i64::from(scale_x(part.dst[0])?), i64::from(scale_y(part.dst[1])?));
     }
     Some(canvas)
 }
 
-fn slice_sheets(pack: &mut Pack, ctx: &mut Context, group: &Group) -> Result<()> {
+fn slice_sheets(pack: &mut Pack, ctx: &mut Context, group: &Group) {
     for name in &group.names {
         let input = full(&group.input.replace("{name}", name));
-        let sheet = match read_png(pack, &input) {
-            None => continue,
-            Some(Err(e)) => {
-                ctx.warn(format!("{e}; sheet not converted"));
-                continue;
-            }
-            Some(Ok(sheet)) => sheet,
-        };
+        let Some(sheet) = load_png(pack, ctx, &input) else { continue };
         let shared: &[Output] = if group.shared_source.as_deref() == Some(name) { &group.shared_outputs } else { &[] };
         let outputs: Vec<&Output> = group.outputs.iter().chain(shared).collect();
         let Some(images) = outputs.iter().map(|o| slice(&sheet, group.reference, o)).collect::<Option<Vec<_>>>() else {
@@ -162,17 +155,27 @@ fn slice_sheets(pack: &mut Pack, ctx: &mut Context, group: &Group) -> Result<()>
         };
         // Mojang's slicer copies the sheet's .mcmeta next to every slice.
         let meta = pack.get(&format!("{input}.mcmeta")).map(<[u8]>::to_vec);
+        // The sheet is only removed when every slice was written or already existed.
+        let mut complete = true;
         for (output, image) in outputs.iter().zip(&images) {
             let path = full(&output.path.replace("{name}", name));
-            write_png(pack, &path, image)?;
+            // A pack that already ships the 26.2 texture keeps it.
+            if pack.contains(&path) {
+                continue;
+            }
+            if !save_png(pack, ctx, &path, image) {
+                complete = false;
+                continue;
+            }
             if let Some(meta) = &meta {
                 pack.insert(format!("{path}.mcmeta"), meta.clone());
             }
         }
-        pack.remove(&input);
-        pack.remove(&format!("{input}.mcmeta"));
+        if complete {
+            pack.remove(&input);
+            pack.remove(&format!("{input}.mcmeta"));
+        }
     }
-    Ok(())
 }
 
 /// Scale factor of an output image relative to its `canvas`, if it is an exact multiple.
@@ -189,10 +192,10 @@ struct Slice<'a> {
     shared: bool,
 }
 
-/// Pastes slices back into a sheet: the inverse of [`slice`] for the regions the slices cover.
-fn paste_slices(reference: [u32; 2], slices: &[Slice]) -> RgbaImage {
-    let scale = slices.iter().map(|s| s.scale).max().unwrap_or(1);
-    let mut sheet = RgbaImage::new(reference[0] * scale, reference[1] * scale);
+/// Pastes slices back into a sheet of `reference * scale` pixels: the inverse of [`slice`] for
+/// the regions the slices cover.
+fn paste_slices(ctx: &mut Context, path: &str, reference: [u32; 2], scale: u32, slices: &[Slice]) -> Option<RgbaImage> {
+    let mut sheet = canvas(ctx, path, reference[0].checked_mul(scale), reference[1].checked_mul(scale))?;
     for slice in slices {
         let image = if slice.scale == scale {
             slice.image.clone()
@@ -210,33 +213,44 @@ fn paste_slices(reference: [u32; 2], slices: &[Slice]) -> RgbaImage {
             imageops::replace(&mut sheet, &piece, i64::from(x * scale), i64::from(y * scale));
         }
     }
-    sheet
+    Some(sheet)
 }
 
 /// Rebuilds entity sheets from sliced textures. Returns the number of sheets built.
-fn join_sheets(pack: &mut Pack, ctx: &mut Context, group: &Group) -> Result<usize> {
+fn join_sheets(pack: &mut Pack, ctx: &mut Context, group: &Group) -> usize {
     let mut consumed = BTreeSet::new();
     let mut built = 0;
+    // A slice so large that the sheet would exceed the size limit is an outlier: it stays as it is.
+    let max = max_scale(group.reference[0], group.reference[1]);
     for name in &group.names {
         let mut slices = Vec::new();
+        let mut budget = PixelBudget::new();
         // Shared slices go first so the sheet's own slices win where they overlap.
         let shared: &[Output] = if group.shared_source.is_some() { &group.shared_outputs } else { &[] };
         for (output, is_shared) in shared.iter().map(|o| (o, true)).chain(group.outputs.iter().map(|o| (o, false))) {
             let path = full(&output.path.replace("{name}", name));
-            match read_png(pack, &path) {
-                None => {}
-                Some(Err(e)) => ctx.warn(format!("{e}; slice ignored")),
-                Some(Ok(image)) => match exact_scale(&image, output.canvas) {
-                    Some(scale) => slices.push(Slice { output, image, path, scale, shared: is_shared }),
-                    None => ctx.warn(format!("{path} has an unexpected size for its 26.2 layout; ignored")),
-                },
+            let Some(image) = load_png(pack, ctx, &path) else { continue };
+            match exact_scale(&image, output.canvas) {
+                Some(scale) if scale <= max && budget.take(&image) => {
+                    slices.push(Slice { output, image, path, scale, shared: is_shared });
+                }
+                Some(_) => ctx.warn(format!("{path} is too large to merge into a sheet; ignored")),
+                None => ctx.warn(format!("{path} has an unexpected size for its 26.2 layout; ignored")),
             }
         }
         if slices.iter().all(|s| s.shared) {
             continue;
         }
         let input = full(&group.input.replace("{name}", name));
-        write_png(pack, &input, &paste_slices(group.reference, &slices))?;
+        // A sheet the pack already has is kept.
+        if pack.contains(&input) {
+            continue;
+        }
+        let scale = slices.iter().map(|s| s.scale).max().unwrap_or(1);
+        let Some(sheet) = paste_slices(ctx, &input, group.reference, scale, &slices) else { continue };
+        if !save_png(pack, ctx, &input, &sheet) {
+            continue;
+        }
         if let Some(meta) = slices.iter().find_map(|s| pack.get(&format!("{}.mcmeta", s.path))).map(<[u8]>::to_vec) {
             pack.insert(format!("{input}.mcmeta"), meta);
         }
@@ -247,7 +261,7 @@ fn join_sheets(pack: &mut Pack, ctx: &mut Context, group: &Group) -> Result<usiz
         pack.remove(&path);
         pack.remove(&format!("{path}.mcmeta"));
     }
-    Ok(built)
+    built
 }
 
 fn has_core_shader(pack: &Pack, prefixes: &[&str]) -> bool {
@@ -259,7 +273,7 @@ fn has_core_shader(pack: &Pack, prefixes: &[&str]) -> bool {
 }
 
 fn rename_pillars(pack: &mut Pack, ctx: &mut Context, up: bool) {
-    move_files(pack, &directed(PILLAR_FILES, up));
+    move_files(pack, ctx, &directed(PILLAR_FILES, up));
     let refs = RefMap::new(&directed(PILLAR_TEXTURES, up));
     let models = asset_files(pack, "models", &[".json"]);
     edit_json_files(pack, ctx, models, |json| refs.rewrite_model_textures(json));
@@ -276,7 +290,7 @@ impl Step for SlicedBlockEntities {
 
     fn upgrade(&self, pack: &mut Pack, ctx: &mut Context) -> Result<()> {
         for group in slicing() {
-            slice_sheets(pack, ctx, group)?;
+            slice_sheets(pack, ctx, group);
         }
         rename_pillars(pack, ctx, true);
 
@@ -301,7 +315,7 @@ impl Step for SlicedBlockEntities {
     fn downgrade(&self, pack: &mut Pack, ctx: &mut Context) -> Result<()> {
         let mut built = 0;
         for group in slicing() {
-            built += join_sheets(pack, ctx, group)?;
+            built += join_sheets(pack, ctx, group);
         }
         if built > 0 {
             ctx.warn(format!(
@@ -491,6 +505,21 @@ mod tests {
         SlicedBlockEntities.upgrade(&mut pack, &mut ctx).unwrap();
         assert!(!pack.contains("assets/minecraft/atlases/beds.json") && !pack.contains("assets/minecraft/atlases/signs.json"));
         assert!(pack.contains("assets/minecraft/atlases/blocks.json"));
+        assert_eq!(ctx.into_warnings().len(), 3);
+    }
+
+    #[test]
+    fn oversized_and_half_size_sheets_are_kept() {
+        let mut pack = Pack::new();
+        pack.insert("assets/minecraft/textures/entity/bed/red.png", crate::steps::support::oversized_png());
+        pack.insert("assets/minecraft/textures/entity/bed/blue.png", crate::steps::support::oversized_png());
+        insert_png(&mut pack, "assets/minecraft/textures/entity/signs/oak.png", &solid(1, 1, [1, 2, 3, 255]));
+        let before = pack.clone();
+        let mut ctx = context();
+        SlicedBlockEntities.upgrade(&mut pack, &mut ctx).unwrap();
+        for path in before.paths() {
+            assert_eq!(pack.get(path), before.get(path), "{path}");
+        }
         assert_eq!(ctx.into_warnings().len(), 3);
     }
 }

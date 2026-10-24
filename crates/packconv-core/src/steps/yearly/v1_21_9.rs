@@ -22,7 +22,7 @@ const REFS: &Pairs = &[("block/chain", "block/iron_chain"), ("item/chain", "item
 pub struct IronChain;
 
 fn convert(pack: &mut Pack, ctx: &mut Context, up: bool) {
-    move_files(pack, &directed(FILES, up));
+    move_files(pack, ctx, &directed(FILES, up));
     let refs = RefMap::new(&directed(REFS, up));
     for dir in ["blockstates", "models", "items"] {
         let files = asset_files(pack, dir, &[".json"]);

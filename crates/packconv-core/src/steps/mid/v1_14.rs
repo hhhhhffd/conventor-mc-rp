@@ -137,7 +137,7 @@ impl Step for V1_14 {
 
     fn upgrade(&self, pack: &mut Pack, ctx: &mut Context) -> Result<()> {
         for sheet in groups().iter().flat_map(|g| &g.sheets) {
-            sheet.slice(pack, ctx)?;
+            sheet.slice(pack, ctx);
         }
         RENAMES.upgrade(pack, ctx);
         if OLD_VILLAGER_TEXTURES
@@ -153,7 +153,7 @@ impl Step for V1_14 {
         for group in groups() {
             let mut partial = false;
             for sheet in &group.sheets {
-                partial |= sheet.unslice(pack, ctx)?;
+                partial |= sheet.unslice(pack, ctx);
             }
             if partial {
                 ctx.warn(format!(

@@ -36,11 +36,6 @@ struct RpcNames {
 }
 
 #[derive(Deserialize)]
-struct RpcIds {
-    regular: BTreeMap<String, String>,
-}
-
-#[derive(Deserialize)]
 struct InverseOverrides {
     block_textures: BTreeMap<String, String>,
     block_models: BTreeMap<String, String>,
@@ -173,17 +168,15 @@ impl Names {
     }
 
     fn swap_directories(&self, rest: &str) -> String {
-        const UP: [(&str, &str); 5] = [
+        const UP: [(&str, &str); 4] = [
             ("textures/blocks/", "textures/block/"),
             ("textures/items/", "textures/item/"),
             ("models/blocks/", "models/block/"),
             ("models/items/", "models/item/"),
-            ("mcpatcher/", "optifine/"),
         ];
-        const DOWN: [(&str, &str); 3] = [
+        const DOWN: [(&str, &str); 2] = [
             ("textures/block/", "textures/blocks/"),
             ("textures/item/", "textures/items/"),
-            ("optifine/", "mcpatcher/"),
         ];
         let table: &[(&str, &str)] = match self.direction {
             Direction::Up => &UP,
@@ -332,19 +325,5 @@ pub fn lang_keys(direction: Direction) -> &'static HashMap<String, String> {
     match direction {
         Direction::Up => UP.get_or_init(|| to_hash(&forward())),
         Direction::Down => DOWN.get_or_init(|| invert(&forward(), &BTreeMap::new())),
-    }
-}
-
-/// Numeric OptiFine ids (`1:2`) to namespaced ids (up), or namespaced ids to numeric (down).
-pub fn block_ids(direction: Direction) -> &'static HashMap<String, String> {
-    static UP: OnceLock<HashMap<String, String>> = OnceLock::new();
-    static DOWN: OnceLock<HashMap<String, String>> = OnceLock::new();
-    match direction {
-        Direction::Up => UP.get_or_init(|| {
-            to_hash(&parse::<RpcIds>(include_str!("../../../data/rpc/forwards/ids.json")).regular)
-        }),
-        Direction::Down => DOWN.get_or_init(|| {
-            to_hash(&parse::<RpcIds>(include_str!("../../../data/rpc/backwards/ids.json")).regular)
-        }),
     }
 }

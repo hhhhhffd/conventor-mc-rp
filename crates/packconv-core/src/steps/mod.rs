@@ -7,6 +7,7 @@ mod flattening;
 mod legacy;
 mod mid;
 mod modern;
+mod support;
 mod yearly;
 
 pub fn all() -> Vec<Box<dyn Step>> {

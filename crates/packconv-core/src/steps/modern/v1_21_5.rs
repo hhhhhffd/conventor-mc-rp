@@ -35,15 +35,15 @@ impl Step for V1_21_5 {
     }
 
     fn upgrade(&self, pack: &mut Pack, ctx: &mut Context) -> Result<()> {
-        move_textures(pack, TEXTURES);
+        move_textures(pack, ctx, TEXTURES);
         if SADDLES.iter().any(|p| pack.contains(p)) {
             ctx.warn("pig and strider saddle textures changed layout in 1.21.5 and were not converted");
         }
         Ok(())
     }
 
-    fn downgrade(&self, pack: &mut Pack, _ctx: &mut Context) -> Result<()> {
-        move_textures(pack, &reversed(TEXTURES));
+    fn downgrade(&self, pack: &mut Pack, ctx: &mut Context) -> Result<()> {
+        move_textures(pack, ctx, &reversed(TEXTURES));
         Ok(())
     }
 }

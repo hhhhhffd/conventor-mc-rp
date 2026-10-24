@@ -1,9 +1,8 @@
-//! The 1.13 flattening: renamed resources, `.lang` to JSON, OptiFine ids and texture sheets.
+//! The 1.13 flattening: renamed resources, `.lang` to JSON and texture sheets.
 
 mod images;
 mod lang;
 mod maps;
-mod optifine;
 mod v1_13;
 
 use crate::step::Step;

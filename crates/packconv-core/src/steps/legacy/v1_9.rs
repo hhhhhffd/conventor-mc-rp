@@ -8,12 +8,13 @@
 
 use std::sync::OnceLock;
 
-use image::{imageops, RgbaImage};
+use image::imageops;
 use serde_json::{json, Map, Value};
 
 use crate::error::Result;
 use crate::step::{Context, Step};
-use crate::util::{read_json, read_png, write_png};
+use crate::steps::support::{canvas, load_png, save_png};
+use crate::util::read_json;
 use crate::version::Version;
 use crate::vfs::Pack;
 
@@ -55,7 +56,7 @@ impl Step for V1_9 {
             split_animation_strip(pack, ctx, name, frames);
         }
         drop_dial_models(pack);
-        add_off_hand_slot(pack, ctx)?;
+        add_off_hand_slot(pack, ctx);
         move_textures(pack, ctx, &BOAT_RENAMES);
         for path in json_paths(pack, "models") {
             update_json(pack, ctx, &path, |model| {
@@ -94,18 +95,15 @@ fn animation_frame_path(name: &str, index: u32) -> String {
 }
 
 /// `compass.png` (16x512, 32 frames) -> `compass_00.png` .. `compass_31.png`. The frames are
-/// square, so the frame size is the width, which also covers HD packs.
+/// square, so the frame size is the width, which also covers HD packs. An unreadable or
+/// oversized strip (e.g. a huge custom animation) is left as it is.
 fn split_animation_strip(pack: &mut Pack, ctx: &mut Context, name: &str, frames: u32) {
     let path = animation_strip_path(name);
-    let Some(image) = read_png(pack, &path) else {
+    let Some(strip) = load_png(pack, ctx, &path) else {
         return;
     };
-    let strip = match image {
-        Ok(image) => image,
-        Err(err) => return ctx.warn(format!("skipped: {err}")),
-    };
     let size = strip.width();
-    if size == 0 || strip.height() != size * frames {
+    if size.checked_mul(frames) != Some(strip.height()) {
         ctx.warn(format!(
             "{path} is {}x{}, expected a strip of {frames} square frames: not split",
             strip.width(),
@@ -115,8 +113,8 @@ fn split_animation_strip(pack: &mut Pack, ctx: &mut Context, name: &str, frames:
     }
     for index in 0..frames {
         let frame = imageops::crop_imm(&strip, 0, index * size, size, size).to_image();
-        if let Err(err) = write_png(pack, &animation_frame_path(name, index), &frame) {
-            return ctx.warn(format!("skipped: {err}"));
+        if !save_png(pack, ctx, &animation_frame_path(name, index), &frame) {
+            return;
         }
     }
     pack.remove(&path);
@@ -124,36 +122,32 @@ fn split_animation_strip(pack: &mut Pack, ctx: &mut Context, name: &str, frames:
 }
 
 /// Inverse of [`split_animation_strip`]. The 1.8 `.mcmeta` only marks the texture as animated.
+/// Frames are pasted one by one so that at most one frame and the strip are in memory.
 fn join_animation_frames(pack: &mut Pack, ctx: &mut Context, name: &str, frames: u32) {
-    let mut loaded = Vec::new();
-    for index in 0..frames {
-        match read_png(pack, &animation_frame_path(name, index)) {
-            Some(Ok(frame)) => loaded.push(frame),
-            Some(Err(err)) => return ctx.warn(format!("skipped: {err}")),
-            None => break,
-        }
-    }
-    if loaded.is_empty() {
-        return;
-    }
-    let size = loaded[0].width();
-    if loaded.len() != frames as usize
-        || loaded
-            .iter()
-            .any(|f| f.width() != size || f.height() != size)
-    {
-        ctx.warn(format!(
-            "{name} needs {frames} square frames of equal size to build the 1.8 strip: not joined"
-        ));
-        return;
-    }
-    let mut strip = RgbaImage::new(size, size * frames);
-    for (index, frame) in (0..).zip(&loaded) {
-        imageops::replace(&mut strip, frame, 0, i64::from(index * size));
-    }
     let path = animation_strip_path(name);
-    if let Err(err) = write_png(pack, &path, &strip) {
-        return ctx.warn(format!("skipped: {err}"));
+    let Some(first) = load_png(pack, ctx, &animation_frame_path(name, 0)) else {
+        return;
+    };
+    let size = first.width();
+    let Some(mut strip) = canvas(ctx, &path, Some(size), size.checked_mul(frames)) else {
+        return;
+    };
+    imageops::replace(&mut strip, &first, 0, 0);
+    for index in 1..frames {
+        let Some(frame) = load_png(pack, ctx, &animation_frame_path(name, index)) else {
+            ctx.warn(format!("{name} needs {frames} frames to build the 1.8 strip: not joined"));
+            return;
+        };
+        if frame.width() != size || frame.height() != size {
+            ctx.warn(format!(
+                "{name} needs {frames} square frames of equal size to build the 1.8 strip: not joined"
+            ));
+            return;
+        }
+        imageops::replace(&mut strip, &frame, 0, i64::from(index * size));
+    }
+    if !save_png(pack, ctx, &path, &strip) {
+        return;
     }
     pack.insert(format!("{path}.mcmeta"), br#"{"animation":{}}"#.to_vec());
     for index in 0..frames {
@@ -219,17 +213,10 @@ fn drop_multipart_blockstates(pack: &mut Pack, ctx: &mut Context) {
 /// edges: the left slot is a 29x24 box at (24, 22) and the right one a 29x24 box at (53, 22).
 /// Each slot's art is 22x22, aligned to the outer side of its box: 11 px of the hotbar's
 /// left edge followed by 11 px of its right edge.
-fn add_off_hand_slot(pack: &mut Pack, ctx: &mut Context) -> Result<()> {
+fn add_off_hand_slot(pack: &mut Pack, ctx: &mut Context) {
     let path = format!("{MC}/textures/gui/widgets.png");
-    let Some(image) = read_png(pack, &path) else {
-        return Ok(());
-    };
-    let mut widgets = match image {
-        Ok(image) => image,
-        Err(err) => {
-            ctx.warn(format!("skipped: {err}"));
-            return Ok(());
-        }
+    let Some(mut widgets) = load_png(pack, ctx, &path) else {
+        return;
     };
     if widgets.width() % 256 != 0 || widgets.width() != widgets.height() {
         ctx.warn(format!(
@@ -237,7 +224,7 @@ fn add_off_hand_slot(pack: &mut Pack, ctx: &mut Context) -> Result<()> {
             widgets.width(),
             widgets.height()
         ));
-        return Ok(());
+        return;
     }
     let scale = widgets.width() / 256;
     let area = |x: u32, y: u32, w: u32, h: u32| (x * scale, y * scale, w * scale, h * scale);
@@ -249,12 +236,8 @@ fn add_off_hand_slot(pack: &mut Pack, ctx: &mut Context) -> Result<()> {
 
     for (box_x, art_x) in [(24, 24), (53, 60)] {
         let (x, y, w, h) = area(box_x, 22, 29, 24);
-        imageops::replace(
-            &mut widgets,
-            &RgbaImage::new(w, h),
-            i64::from(x),
-            i64::from(y),
-        );
+        let Some(blank) = canvas(ctx, &path, Some(w), Some(h)) else { return };
+        imageops::replace(&mut widgets, &blank, i64::from(x), i64::from(y));
         imageops::replace(
             &mut widgets,
             &hotbar_left,
@@ -268,7 +251,7 @@ fn add_off_hand_slot(pack: &mut Pack, ctx: &mut Context) -> Result<()> {
             i64::from(23 * scale),
         );
     }
-    write_png(pack, &path, &widgets)
+    save_png(pack, ctx, &path, &widgets);
 }
 
 /// The 1.9 display defaults that `upgrade_display` adds (`ground`, `head` and the right hands).
@@ -478,7 +461,7 @@ fn downgrade_model(model: &mut Value) -> bool {
 mod tests {
     use super::*;
     use crate::steps::legacy::common::testing::*;
-    use image::Rgba;
+    use image::{Rgba, RgbaImage};
 
     fn up() -> Context {
         Context::new(Version::new(1, 8, 0), Version::new(1, 9, 0))
@@ -834,6 +817,36 @@ mod tests {
             pack.get("assets/minecraft/models/item/bad.json").unwrap(),
             b"{not json"
         );
+        assert_eq!(ctx.into_warnings().len(), 1);
+    }
+
+    #[test]
+    fn oversized_images_are_left_alone() {
+        let mut pack = Pack::new();
+        let strip = animation_strip_path("compass");
+        let frame = animation_frame_path("clock", 0);
+        let widgets = format!("{MC}/textures/gui/widgets.png");
+        for path in [&strip, &frame, &widgets] {
+            pack.insert(path, crate::steps::support::oversized_png());
+        }
+        let mut ctx = up();
+        V1_9.upgrade(&mut pack, &mut ctx).unwrap();
+        join_animation_frames(&mut pack, &mut ctx, "clock", 64);
+        for path in [&strip, &frame, &widgets] {
+            assert_eq!(pack.get(path), Some(&crate::steps::support::oversized_png()[..]), "{path}");
+        }
+        assert_eq!(ctx.into_warnings().len(), 3);
+    }
+
+    #[test]
+    fn boat_rename_keeps_an_existing_destination() {
+        let mut pack = Pack::new();
+        put_png(&mut pack, &format!("{MC}/textures/items/boat.png"), &solid(1, 1, [1, 0, 0, 255]));
+        put_png(&mut pack, &format!("{MC}/textures/items/oak_boat.png"), &solid(1, 1, [2, 0, 0, 255]));
+        let mut ctx = up();
+        V1_9.upgrade(&mut pack, &mut ctx).unwrap();
+        assert_eq!(get_png(&pack, &format!("{MC}/textures/items/oak_boat.png")).get_pixel(0, 0).0[0], 2);
+        assert!(!pack.contains(&format!("{MC}/textures/items/boat.png")));
         assert_eq!(ctx.into_warnings().len(), 1);
     }
 }

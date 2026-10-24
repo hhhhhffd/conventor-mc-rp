@@ -3,7 +3,7 @@
 
 use crate::error::Result;
 use crate::step::{Context, Step};
-use crate::util::write_png;
+use crate::steps::support::{save_png, Renamer};
 use crate::version::Version;
 use crate::vfs::Pack;
 
@@ -31,9 +31,11 @@ impl Step for V1_18 {
     fn upgrade(&self, pack: &mut Pack, ctx: &mut Context) -> Result<()> {
         let marker = format!("{PARTICLES}/block_marker.json");
         let light = format!("{PARTICLES}/light.json");
-        if !pack.rename(&format!("{PARTICLES}/barrier.json"), &marker) {
-            pack.rename(&light, &marker);
+        let mut renamer = Renamer::default();
+        if !renamer.rename(pack, &format!("{PARTICLES}/barrier.json"), &marker) {
+            renamer.rename(pack, &light, &marker);
         }
+        renamer.report(ctx);
         pack.remove(&light);
 
         let Some(mut inventory) = load_png(pack, INVENTORY, ctx) else { return Ok(()) };
@@ -55,14 +57,24 @@ impl Step for V1_18 {
                 Flip::None,
             );
         }
-        write_png(pack, INVENTORY, &inventory)
+        save_png(pack, ctx, INVENTORY, &inventory);
+        Ok(())
     }
 
     fn downgrade(&self, pack: &mut Pack, ctx: &mut Context) -> Result<()> {
         // 1.17 has both particles, each reading its own definition.
         if let Some(marker) = pack.remove(&format!("{PARTICLES}/block_marker.json")) {
-            pack.insert(format!("{PARTICLES}/barrier.json"), marker.clone());
-            pack.insert(format!("{PARTICLES}/light.json"), marker);
+            let mut kept = false;
+            for particle in ["barrier", "light"] {
+                let path = format!("{PARTICLES}/{particle}.json");
+                kept |= pack.contains(&path);
+                if !pack.contains(&path) {
+                    pack.insert(path, marker.clone());
+                }
+            }
+            if kept {
+                ctx.warn("an existing barrier or light particle definition was kept instead of block_marker");
+            }
         }
 
         let Some(mut inventory) = load_png(pack, INVENTORY, ctx) else { return Ok(()) };
@@ -76,14 +88,15 @@ impl Step for V1_18 {
         };
         // The small background was derived from the wide one, so dropping it loses nothing.
         clear_area(&mut inventory, (0, 198 * k, 32 * k, 32 * k));
-        write_png(pack, INVENTORY, &inventory)
+        save_png(pack, ctx, INVENTORY, &inventory);
+        Ok(())
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::util::read_png;
+    use crate::util::{read_png, write_png};
     use image::{Rgba, RgbaImage};
 
     fn ctx() -> Context {

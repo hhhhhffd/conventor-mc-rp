@@ -13,7 +13,8 @@ use serde_json::{json, Value};
 use super::common::{crop, move_with_mcmeta, paste, resize};
 use crate::error::Result;
 use crate::step::{Context, Step};
-use crate::util::{read_png, write_json, write_png};
+use crate::steps::support::{canvas, load_png, max_scale, save_png, PixelBudget, Renamer};
+use crate::util::{read_png, write_json};
 use crate::version::Version;
 use crate::vfs::Pack;
 
@@ -131,37 +132,60 @@ fn sprite_metadata(output: &str) -> Value {
     }
 }
 
-/// Box in pixels of an image of `width x height`, using the slicer's integer scaling.
-fn scaled_box(b: &[u32; 6], width: u32, height: u32) -> (u32, u32, u32, u32) {
-    (b[0] * width / b[4], b[1] * height / b[5], b[2] * width / b[4], b[3] * height / b[5])
+/// Box in pixels of an image of `width x height`, using the slicer's integer scaling. The
+/// products need 64 bits: a wide image times a box coordinate overflows `u32`.
+fn scaled_box(b: &[u32; 6], width: u32, height: u32) -> Option<(u32, u32, u32, u32)> {
+    let scale = |value: u32, size: u32, design: u32| {
+        u32::try_from(u64::from(value) * u64::from(size) / u64::from(design.max(1))).ok()
+    };
+    Some((
+        scale(b[0], width, b[4])?,
+        scale(b[1], height, b[5])?,
+        scale(b[2], width, b[4])?,
+        scale(b[3], height, b[5])?,
+    ))
 }
 
-fn apply(transform: Transform, sprite: RgbaImage) -> RgbaImage {
+/// Applies the slicer's post-processing to a freshly cut sprite. `None` (with a warning) when
+/// the sprite is too small or too large for it.
+fn apply(ctx: &mut Context, path: &str, transform: Transform, sprite: &RgbaImage) -> Option<RgbaImage> {
     match transform {
         Transform::FlipFrameAxis(n) => {
             let (frame_w, h) = (sprite.width() / n, sprite.height());
-            let mut out = RgbaImage::new(frame_w, h * n);
+            if frame_w == 0 {
+                ctx.warn(format!("{path}: sprite is too narrow for {n} frames, skipped"));
+                return None;
+            }
+            let mut out = canvas(ctx, path, Some(frame_w), h.checked_mul(n))?;
             for i in 0..n {
-                if let Some(frame) = crop(&sprite, i * frame_w, 0, frame_w, h) {
+                if let Some(frame) = crop(sprite, i * frame_w, 0, frame_w, h) {
                     paste(&mut out, &frame, 0, i * h);
                 }
             }
-            out
+            Some(out)
         }
         Transform::Extend { src_w, x, y, w, h, .. } => {
             let s = sprite.width() / src_w.max(1);
-            let mut out = RgbaImage::new(w * s, h * s);
-            paste(&mut out, &sprite, x * s, y * s);
-            out
+            if s == 0 {
+                ctx.warn(format!("{path}: sprite is below its design size, skipped"));
+                return None;
+            }
+            let mut out = canvas(ctx, path, w.checked_mul(s), h.checked_mul(s))?;
+            paste(&mut out, sprite, x * s, y * s);
+            Some(out)
         }
     }
 }
 
-fn unapply(transform: Transform, sprite: &RgbaImage) -> Option<RgbaImage> {
+fn unapply(ctx: &mut Context, path: &str, transform: Transform, sprite: &RgbaImage) -> Option<RgbaImage> {
     match transform {
         Transform::FlipFrameAxis(n) => {
             let (w, frame_h) = (sprite.width(), sprite.height() / n);
-            let mut out = RgbaImage::new(w * n, frame_h);
+            if frame_h == 0 {
+                ctx.warn(format!("{path}: sprite is too short for {n} frames, not merged"));
+                return None;
+            }
+            let mut out = canvas(ctx, path, w.checked_mul(n), Some(frame_h))?;
             for i in 0..n {
                 paste(&mut out, &crop(sprite, 0, i * frame_h, w, frame_h)?, i * w, 0);
             }
@@ -169,7 +193,7 @@ fn unapply(transform: Transform, sprite: &RgbaImage) -> Option<RgbaImage> {
         }
         Transform::Extend { src_w, src_h, x, y, w, .. } => {
             let s = sprite.width() / w.max(1);
-            crop(sprite, x * s, y * s, src_w * s, src_h * s)
+            crop(sprite, x.saturating_mul(s), y.saturating_mul(s), src_w.saturating_mul(s), src_h.saturating_mul(s))
         }
     }
 }
@@ -204,97 +228,118 @@ impl Step for V1_20_2 {
     }
 
     fn upgrade(&self, pack: &mut Pack, ctx: &mut Context) -> Result<()> {
+        let mut renamer = Renamer::default();
         for (from, to) in REALMS_MOVES {
-            move_with_mcmeta(pack, from, to);
+            move_with_mcmeta(pack, &mut renamer, from, to);
         }
+        renamer.report(ctx);
         // The villager sheet shrinks to its panel; this must happen before its sprites are cut out
-        // and the sheet is removed.
-        if let Some(sheet) = read_png(pack, VILLAGER_SHEET) {
-            match sheet {
-                Ok(img) => {
-                    let (x, y, w, h) = scaled_box(&VILLAGER_BOX, img.width(), img.height());
-                    if let Some(panel) = crop(&img, x, y, w, h) {
-                        write_png(pack, VILLAGER_PANEL, &panel)?;
-                    }
+        // and the sheet is removed. A panel the pack already has is kept.
+        if !pack.contains(VILLAGER_PANEL) {
+            if let Some(img) = load_png(pack, ctx, VILLAGER_SHEET) {
+                let panel = scaled_box(&VILLAGER_BOX, img.width(), img.height())
+                    .and_then(|(x, y, w, h)| crop(&img, x, y, w, h));
+                if let Some(panel) = panel {
+                    save_png(pack, ctx, VILLAGER_PANEL, &panel);
                 }
-                Err(e) => ctx.warn(format!("{e}; villager panel not converted")),
             }
         }
         for sheet in sheets() {
-            slice_sheet(pack, ctx, sheet)?;
+            slice_sheet(pack, ctx, sheet);
         }
         Ok(())
     }
 
     fn downgrade(&self, pack: &mut Pack, ctx: &mut Context) -> Result<()> {
+        let mut renamer = Renamer::default();
         for (to, from) in REALMS_MOVES {
-            move_with_mcmeta(pack, from, to);
+            move_with_mcmeta(pack, &mut renamer, from, to);
         }
-        if let Some(panel) = read_png(pack, VILLAGER_PANEL) {
-            match panel {
-                Ok(panel) => {
-                    // Rebuild the 512x256 sheet around the panel so the sprites can be pasted onto it.
-                    let s = (panel.height() / VILLAGER_BOX[3]).max(1);
-                    let mut sheet = RgbaImage::new(VILLAGER_BOX[4] * s, VILLAGER_BOX[5] * s);
+        renamer.report(ctx);
+        if !pack.contains(VILLAGER_SHEET) {
+            if let Some(panel) = load_png(pack, ctx, VILLAGER_PANEL) {
+                // Rebuild the 512x256 sheet around the panel so the sprites can be pasted onto it.
+                let s = (panel.height() / VILLAGER_BOX[3]).max(1);
+                let size = (VILLAGER_BOX[4].checked_mul(s), VILLAGER_BOX[5].checked_mul(s));
+                if let Some(mut sheet) = canvas(ctx, VILLAGER_SHEET, size.0, size.1) {
                     paste(&mut sheet, &panel, 0, 0);
-                    write_png(pack, VILLAGER_SHEET, &sheet)?;
-                    pack.remove(VILLAGER_PANEL);
+                    if save_png(pack, ctx, VILLAGER_SHEET, &sheet) {
+                        pack.remove(VILLAGER_PANEL);
+                    }
                 }
-                Err(e) => ctx.warn(format!("{e}; villager panel not converted")),
             }
         }
         for sheet in sheets() {
-            merge_sheet(pack, ctx, sheet)?;
+            merge_sheet(pack, ctx, sheet);
         }
         Ok(())
     }
 }
 
-fn slice_sheet(pack: &mut Pack, ctx: &mut Context, sheet: &Sheet) -> Result<()> {
-    let img = match read_png(pack, &sheet.input) {
-        None => return Ok(()),
-        Some(Ok(img)) => img,
-        Some(Err(e)) => {
-            ctx.warn(format!("{e}; GUI sheet not sliced"));
-            return Ok(());
-        }
-    };
+fn slice_sheet(pack: &mut Pack, ctx: &mut Context, sheet: &Sheet) {
+    let Some(img) = load_png(pack, ctx, &sheet.input) else { return };
     let sheet_meta = pack.get(&format!("{}.mcmeta", sheet.input)).map(<[u8]>::to_vec);
+    // The sheet is only deleted when every sprite was cut out or already existed.
+    let mut complete = true;
     for row in &sheet.rows {
         // A pack that already ships the 1.20.2 sprite keeps it.
         if pack.contains(&row.output) {
             continue;
         }
-        let (x, y, w, h) = scaled_box(&row.boxed, img.width(), img.height());
-        let Some(mut sprite) = crop(&img, x, y, w, h) else { continue };
+        let cut = scaled_box(&row.boxed, img.width(), img.height()).and_then(|(x, y, w, h)| crop(&img, x, y, w, h));
+        let Some(mut sprite) = cut else {
+            complete = false;
+            continue;
+        };
         if let Some(transform) = row.transform {
-            sprite = apply(transform, sprite);
+            match apply(ctx, &row.output, transform, &sprite) {
+                Some(transformed) => sprite = transformed,
+                None => {
+                    complete = false;
+                    continue;
+                }
+            }
         }
-        write_png(pack, &row.output, &sprite)?;
+        if !save_png(pack, ctx, &row.output, &sprite) {
+            complete = false;
+            continue;
+        }
         if let Some(meta) = &sheet_meta {
             pack.insert(format!("{}.mcmeta", row.output), meta.clone());
         } else if row.has_metadata {
             write_json(pack, &format!("{}.mcmeta", row.output), &sprite_metadata(&row.output));
         }
     }
-    if !is_kept(&sheet.input) {
+    if !complete {
+        ctx.warn(format!(
+            "{}: {}x{} does not match the expected layout, some GUI sprites were not cut and the sheet was kept",
+            sheet.input,
+            img.width(),
+            img.height()
+        ));
+    } else if !is_kept(&sheet.input) {
         pack.remove(&sheet.input);
         pack.remove(&format!("{}.mcmeta", sheet.input));
     }
-    Ok(())
 }
 
-fn merge_sheet(pack: &mut Pack, ctx: &mut Context, sheet: &Sheet) -> Result<()> {
+fn merge_sheet(pack: &mut Pack, ctx: &mut Context, sheet: &Sheet) {
+    let design = sheet.rows[0].boxed;
+    let max = max_scale(design[4], design[5]);
     let mut sprites = Vec::new();
+    let mut budget = PixelBudget::new();
     for row in &sheet.rows {
-        match read_png(pack, &row.output) {
-            None => {}
-            Some(Ok(img)) => sprites.push((row, img)),
-            Some(Err(e)) => ctx.warn(format!("{e}; GUI sprite not merged")),
+        let Some(img) = load_png(pack, ctx, &row.output) else { continue };
+        // A sprite so large that the sheet would exceed the size limit is an outlier: it stays.
+        let scale = img.width() / sprite_design_size(row).0.max(1);
+        if scale > max || !budget.take(&img) {
+            ctx.warn(format!("{}: too large to merge into {}, left as it is", row.output, sheet.input));
+            continue;
         }
+        sprites.push((row, img));
     }
     if sprites.is_empty() {
-        return Ok(());
+        return;
     }
     // HD scale of the sheet: the largest sprite-to-design ratio, so no detail is lost.
     let scale = sprites
@@ -302,35 +347,44 @@ fn merge_sheet(pack: &mut Pack, ctx: &mut Context, sheet: &Sheet) -> Result<()> 
         .map(|(row, img)| img.width() / sprite_design_size(row).0.max(1))
         .max()
         .unwrap_or(1)
-        .max(1);
-    let design = sheet.rows[0].boxed;
+        .clamp(1, max);
     let (width, height) = (design[4] * scale, design[5] * scale);
     // Pixels the sprites do not cover (rest of the old sheet) are kept when the sheet exists.
-    let mut canvas = match read_png(pack, &sheet.input) {
-        Some(Ok(old)) => resize(&old, width, height),
+    let mut target = match read_png(pack, &sheet.input) {
+        Some(Ok(old)) => match resize(&old, width, height) {
+            Some(old) => old,
+            None => return,
+        },
         Some(Err(e)) => {
-            ctx.warn(format!("{e}; GUI sheet rebuilt from sprites only"));
-            RgbaImage::new(width, height)
+            ctx.warn(format!("{e}; GUI sheet left as it is, its sprites were not merged"));
+            return;
         }
-        None => RgbaImage::new(width, height),
+        None => match canvas(ctx, &sheet.input, Some(width), Some(height)) {
+            Some(target) => target,
+            None => return,
+        },
     };
+    let mut merged = Vec::new();
     for (row, sprite) in &sprites {
         let sprite = match row.transform {
-            Some(transform) => match unapply(transform, sprite) {
+            Some(transform) => match unapply(ctx, &row.output, transform, sprite) {
                 Some(restored) => restored,
                 None => continue,
             },
             None => sprite.clone(),
         };
-        let (x, y, w, h) = scaled_box(&row.boxed, width, height);
-        paste(&mut canvas, &resize(&sprite, w, h), x, y);
+        let Some((x, y, w, h)) = scaled_box(&row.boxed, width, height) else { continue };
+        let Some(sprite) = resize(&sprite, w, h) else { continue };
+        paste(&mut target, &sprite, x, y);
+        merged.push(*row);
     }
-    write_png(pack, &sheet.input, &canvas)?;
-    for (row, _) in &sprites {
+    if merged.is_empty() || !save_png(pack, ctx, &sheet.input, &target) {
+        return;
+    }
+    for row in merged {
         pack.remove(&row.output);
         pack.remove(&format!("{}.mcmeta", row.output));
     }
-    Ok(())
 }
 
 #[cfg(test)]
@@ -439,5 +493,56 @@ mod tests {
         assert!(!pack.contains(VILLAGER_SHEET));
         V1_20_2.downgrade(&mut pack, &mut ctx()).unwrap();
         assert_eq!(png(&pack, VILLAGER_SHEET).dimensions(), (512, 256));
+    }
+
+    #[test]
+    fn degenerate_sheets_do_not_abort_the_conversion() {
+        let mut pack = Pack::new();
+        // Half-resolution loom: the error sprite is smaller than the sprite extender's design size.
+        let loom = "assets/minecraft/textures/gui/container/loom.png";
+        let error = "assets/minecraft/textures/gui/sprites/container/loom/error.png";
+        put_png(&mut pack, loom, &solid(128, 128, [1, 2, 3, 255]));
+        // A one pixel wide animation cannot be split into frames.
+        let expires = "assets/realms/textures/gui/realms/expires_soon_icon.png";
+        put_png(&mut pack, expires, &solid(1, 1, [1, 2, 3, 255]));
+        let mut ctx = ctx();
+        V1_20_2.upgrade(&mut pack, &mut ctx).unwrap();
+        assert!(pack.contains(loom));
+        assert!(!pack.contains(error));
+        assert!(!ctx.into_warnings().is_empty());
+    }
+
+    #[test]
+    fn oversized_images_are_left_alone_both_ways() {
+        let mut pack = Pack::new();
+        let paths = [WIDGETS, VILLAGER_SHEET, VILLAGER_PANEL, "assets/minecraft/textures/gui/sprites/widget/button.png"];
+        for path in paths {
+            pack.insert(path, crate::steps::support::oversized_png());
+        }
+        let before = pack.clone();
+        let mut ctx = ctx();
+        V1_20_2.upgrade(&mut pack, &mut ctx).unwrap();
+        V1_20_2.downgrade(&mut pack, &mut ctx).unwrap();
+        for path in paths {
+            assert_eq!(pack.get(path), before.get(path), "{path}");
+        }
+    }
+
+    #[test]
+    fn scaled_box_does_not_overflow_on_wide_images() {
+        assert!(scaled_box(&VILLAGER_BOX, u32::MAX, 1).is_some());
+        assert!(scaled_box(&[0, 0, 512, 256, 1, 1], u32::MAX, 1).is_none());
+    }
+
+    #[test]
+    fn oversized_sprite_is_not_merged() {
+        let mut pack = Pack::new();
+        let sprite = "assets/minecraft/textures/gui/sprites/container/furnace/lit_progress.png";
+        put_png(&mut pack, sprite, &solid(14 * 40, 1, [255, 128, 0, 255]));
+        let mut ctx = ctx();
+        V1_20_2.downgrade(&mut pack, &mut ctx).unwrap();
+        assert!(pack.contains(sprite));
+        assert!(!pack.contains("assets/minecraft/textures/gui/container/furnace.png"));
+        assert_eq!(ctx.into_warnings().len(), 1);
     }
 }

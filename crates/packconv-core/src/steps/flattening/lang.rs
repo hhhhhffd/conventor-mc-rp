@@ -22,6 +22,8 @@ pub fn convert(pack: &mut Pack, ctx: &mut Context, direction: Direction) {
     let keys = lang_keys(direction);
     let remap = |key: &str| keys.get(key).cloned().unwrap_or_else(|| key.to_string());
 
+    // A converted file never replaces one that already exists in the target format.
+    let mut dropped = 0;
     match direction {
         Direction::Up => {
             for path in language_files(pack, ".lang") {
@@ -41,6 +43,10 @@ pub fn convert(pack: &mut Pack, ctx: &mut Context, direction: Direction) {
                     }
                 }
                 let json_path = format!("{}.json", path.trim_end_matches(".lang"));
+                if pack.contains(&json_path) {
+                    dropped += 1;
+                    continue;
+                }
                 let data = serde_json::to_vec_pretty(&Value::Object(entries))
                     .expect("JSON value serializes");
                 pack.insert(json_path, data);
@@ -70,11 +76,18 @@ pub fn convert(pack: &mut Pack, ctx: &mut Context, direction: Direction) {
                     }
                 }
                 pack.remove(&path);
-                pack.insert(
-                    format!("{}.lang", path.trim_end_matches(".json")),
-                    text.into_bytes(),
-                );
+                let lang_path = format!("{}.lang", path.trim_end_matches(".json"));
+                if pack.contains(&lang_path) {
+                    dropped += 1;
+                    continue;
+                }
+                pack.insert(lang_path, text.into_bytes());
             }
         }
+    }
+    if dropped > 0 {
+        ctx.warn(format!(
+            "{dropped} language file(s) were dropped because a file in the target format already exists"
+        ));
     }
 }
