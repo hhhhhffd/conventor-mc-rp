@@ -9,6 +9,7 @@ mod convert;
 pub mod error;
 pub mod meta;
 mod rar;
+pub mod repair;
 pub mod step;
 mod steps;
 pub mod util;
@@ -17,6 +18,7 @@ pub mod vfs;
 
 pub use archive::Limits;
 pub use convert::{convert, convert_pack, supported_versions, ConvertOptions, ConvertOutput, Report};
+pub use repair::{repair, repair_pack, RepairOptions, RepairOutput, RepairReport};
 pub use error::{Error, Result};
 pub use version::{PackFormat, Version};
 pub use vfs::Pack;
