@@ -7,7 +7,7 @@ use std::sync::OnceLock;
 
 use serde_json::Value;
 
-use super::common::{asset_files, edit_json_files, move_files, uses_item_model_type, warn_if_shaders, RefMap, MINECRAFT};
+use super::common::{asset_files, edit_json_files, move_files, uses_item_model_type, RefMap, MINECRAFT};
 use crate::error::Result;
 use crate::step::{Context, Step};
 use crate::version::Version;
@@ -79,7 +79,6 @@ fn convert(pack: &mut Pack, ctx: &mut Context, up: bool) {
     } else if pack.paths().any(|p| p.starts_with(MINECRAFT) && p.contains("textures/entity/") && (p.contains("_baby") || p.contains("/baby/"))) {
         ctx.warn("baby mob textures only exist since 26.1 and are ignored by older versions; left in the pack");
     }
-    warn_if_shaders(pack, ctx, "26.1 rewrote the lightmap uniforms and split item rendering out of core/entity");
 }
 
 impl Step for EntityFolders {
@@ -189,12 +188,11 @@ mod tests {
     }
 
     #[test]
-    fn warns_about_special_models_and_shaders() {
+    fn warns_about_special_models() {
         let mut pack = Pack::new();
         pack.insert("assets/minecraft/items/shield.json", br#"{"model":{"type":"minecraft:special","base":"x","model":{"type":"minecraft:shield"}}}"#.to_vec());
-        pack.insert("assets/minecraft/shaders/core/item.vsh", vec![]);
         let mut ctx = context();
         EntityFolders.upgrade(&mut pack, &mut ctx).unwrap();
-        assert_eq!(ctx.into_warnings().len(), 2);
+        assert_eq!(ctx.into_warnings().len(), 1);
     }
 }

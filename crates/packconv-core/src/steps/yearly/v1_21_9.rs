@@ -1,7 +1,7 @@
 //! 1.21.9: the chain block and item became `iron_chain` (textures, blockstate, item
 //! definition and models) to make room for the copper chains.
 
-use super::common::{asset_files, directed, edit_json_files, move_files, warn_if_shaders, Pairs, RefMap};
+use super::common::{asset_files, directed, edit_json_files, move_files, Pairs, RefMap};
 use crate::error::Result;
 use crate::step::{Context, Step};
 use crate::version::Version;
@@ -28,11 +28,6 @@ fn convert(pack: &mut Pack, ctx: &mut Context, up: bool) {
         let files = asset_files(pack, dir, &[".json"]);
         edit_json_files(pack, ctx, files, |json| refs.rewrite_all(json));
     }
-    warn_if_shaders(
-        pack,
-        ctx,
-        "1.21.9 moved to GLSL 330, removed the fullscreen vertex shaders and changed core shader inputs",
-    );
 }
 
 impl Step for IronChain {
@@ -114,12 +109,11 @@ mod tests {
     }
 
     #[test]
-    fn warns_about_shaders_and_bad_json() {
+    fn warns_about_bad_json() {
         let mut pack = Pack::new();
-        pack.insert("assets/minecraft/shaders/core/terrain.vsh", vec![]);
         pack.insert("assets/minecraft/models/block/broken.json", b"{".to_vec());
         let mut ctx = context();
         IronChain.upgrade(&mut pack, &mut ctx).unwrap();
-        assert_eq!(ctx.into_warnings().len(), 2);
+        assert_eq!(ctx.into_warnings().len(), 1);
     }
 }

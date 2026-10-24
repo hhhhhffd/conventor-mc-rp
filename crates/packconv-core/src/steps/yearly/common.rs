@@ -148,16 +148,6 @@ pub fn uses_item_model_type(pack: &Pack, types: &[&str]) -> bool {
         .any(|json| contains(&json, types))
 }
 
-/// Custom shaders are GLSL tied to the engine's internal uniforms and cannot be converted.
-pub fn warn_if_shaders(pack: &Pack, ctx: &mut Context, reason: &str) {
-    let has_shaders = pack
-        .paths()
-        .any(|p| p.strip_prefix("assets/").and_then(|r| r.split('/').nth(1)).is_some_and(|dir| dir == "shaders" || dir == "post_effect"));
-    if has_shaders {
-        ctx.warn(format!("custom shaders cannot be converted automatically ({reason}); review them by hand"));
-    }
-}
-
 #[cfg(test)]
 pub mod testing {
     use image::RgbaImage;

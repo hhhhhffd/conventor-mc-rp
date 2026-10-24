@@ -264,14 +264,6 @@ fn join_sheets(pack: &mut Pack, ctx: &mut Context, group: &Group) -> usize {
     built
 }
 
-fn has_core_shader(pack: &Pack, prefixes: &[&str]) -> bool {
-    pack.paths().any(|p| {
-        p.strip_prefix("assets/")
-            .and_then(|rest| rest.split_once("/shaders/core/"))
-            .is_some_and(|(_, file)| prefixes.iter().any(|prefix| file.starts_with(prefix)))
-    })
-}
-
 fn rename_pillars(pack: &mut Pack, ctx: &mut Context, up: bool) {
     move_files(pack, ctx, &directed(PILLAR_FILES, up));
     let refs = RefMap::new(&directed(PILLAR_TEXTURES, up));
@@ -306,9 +298,6 @@ impl Step for SlicedBlockEntities {
         if uses_item_model_type(pack, &REMOVED_SPECIAL_MODELS) {
             ctx.warn("item definitions use the bed/standing_sign/hanging_sign special models, which 26.2 removed; use block models instead");
         }
-        if has_core_shader(pack, &["rendertype_text"]) {
-            ctx.warn("26.2 replaced the rendertype_text* core shaders with core/text and core/text_background; custom text shaders must be ported by hand");
-        }
         Ok(())
     }
 
@@ -323,9 +312,6 @@ impl Step for SlicedBlockEntities {
             ));
         }
         rename_pillars(pack, ctx, false);
-        if has_core_shader(pack, &["text.", "text_background."]) {
-            ctx.warn("26.2 merged the text core shaders into core/text; custom text shaders must be ported back to rendertype_text* by hand");
-        }
         Ok(())
     }
 }
@@ -494,18 +480,17 @@ mod tests {
     }
 
     #[test]
-    fn removed_atlases_and_shader_and_special_models_warn() {
+    fn removed_atlases_and_special_models_warn() {
         let mut pack = Pack::new();
         pack.insert("assets/minecraft/atlases/beds.json", b"{}".to_vec());
         pack.insert("assets/minecraft/atlases/signs.json", b"{}".to_vec());
         pack.insert("assets/minecraft/atlases/blocks.json", b"{}".to_vec());
-        pack.insert("assets/minecraft/shaders/core/rendertype_text.vsh", vec![]);
         pack.insert("assets/minecraft/items/red_bed.json", br#"{"model":{"type":"minecraft:special","model":{"type":"minecraft:bed"}}}"#.to_vec());
         let mut ctx = context();
         SlicedBlockEntities.upgrade(&mut pack, &mut ctx).unwrap();
         assert!(!pack.contains("assets/minecraft/atlases/beds.json") && !pack.contains("assets/minecraft/atlases/signs.json"));
         assert!(pack.contains("assets/minecraft/atlases/blocks.json"));
-        assert_eq!(ctx.into_warnings().len(), 3);
+        assert_eq!(ctx.into_warnings().len(), 2);
     }
 
     #[test]

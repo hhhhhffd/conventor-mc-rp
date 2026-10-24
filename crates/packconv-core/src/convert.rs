@@ -148,6 +148,9 @@ pub fn convert_pack(pack: &mut Pack, from: Option<Version>, to: Version, cancel:
     let passthrough = pack.split_off(|p| !is_official(p));
 
     let mut ctx = Context::new(from, to);
+    if from != to {
+        strip_shaders(pack, &mut ctx);
+    }
     let mut applied = Vec::new();
     let all = steps::all();
     if from < to {
@@ -176,6 +179,23 @@ pub fn convert_pack(pack: &mut Pack, from: Option<Version>, to: Version, cancel:
         files_in,
         files_out: pack.len(),
     })
+}
+
+/// Shaders are GLSL bound to one engine version's uniforms, vertex formats and file layout
+/// (they changed in 1.17, 1.21.2, 1.21.5, 1.21.6, 1.21.9, 26.1, 26.2...). Loaded on another
+/// version they fail to compile, which can crash the game or leave a black screen, and they
+/// cannot be converted mechanically. Removing them makes the game fall back to vanilla.
+fn strip_shaders(pack: &mut Pack, ctx: &mut Context) {
+    let removed = pack
+        .split_off(|p| {
+            p.starts_with("assets/minecraft/shaders/") || p.starts_with("assets/minecraft/post_effect/")
+        })
+        .len();
+    if removed > 0 {
+        ctx.warn(format!(
+            "removed {removed} shader file(s): custom shaders only work on the version they were written for and can crash other versions"
+        ));
+    }
 }
 
 fn check_cancel(cancel: &AtomicBool) -> Result<()> {
@@ -212,5 +232,26 @@ mod tests {
 
         let err = convert_pack(&mut pack, None, Version::new(1, 8, 9), &AtomicBool::new(true));
         assert!(matches!(err, Err(Error::Cancelled)));
+    }
+
+    #[test]
+    fn strips_shaders_only_when_the_version_changes() {
+        let mut pack = Pack::new();
+        pack.insert("pack.mcmeta", br#"{"pack":{"pack_format":34,"description":""}}"#.to_vec());
+        pack.insert("assets/minecraft/shaders/core/rendertype_solid.fsh", vec![1]);
+        pack.insert("assets/minecraft/shaders/post/blur.json", vec![2]);
+        pack.insert("assets/minecraft/post_effect/spider.json", vec![3]);
+        pack.insert("assets/mymod/shaders/core/x.fsh", vec![4]);
+
+        let mut same = pack.clone();
+        let report = convert_pack(&mut same, None, Version::new(1, 21, 1), &AtomicBool::new(false)).unwrap();
+        assert!(same.contains("assets/minecraft/shaders/core/rendertype_solid.fsh"));
+        assert!(report.warnings.is_empty());
+
+        let report = convert_pack(&mut pack, None, Version::new(1, 21, 4), &AtomicBool::new(false)).unwrap();
+        assert!(pack.paths_with_prefix("assets/minecraft/shaders/").is_empty());
+        assert!(!pack.contains("assets/minecraft/post_effect/spider.json"));
+        assert!(pack.contains("assets/mymod/shaders/core/x.fsh"));
+        assert!(report.warnings.iter().any(|w| w.contains("removed 3 shader")));
     }
 }

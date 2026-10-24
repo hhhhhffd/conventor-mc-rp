@@ -4,7 +4,7 @@
 use image::{imageops, RgbaImage};
 use serde_json::{json, Value};
 
-use super::common::{move_files, warn_if_shaders, MINECRAFT};
+use super::common::{move_files, MINECRAFT};
 use crate::error::Result;
 use crate::step::{Context, Step};
 use crate::steps::support::{canvas, load_png, save_png, PixelBudget};
@@ -230,7 +230,6 @@ impl Step for Celestials {
             &EFFECT_SPRITES_OLD,
             "effect_background_large/small were replaced by nine-sliced effect_background/effect_background_ambient; the old sprites are unused and were not converted",
         );
-        warn_if_shaders(pack, ctx, "1.21.11 changed the terrain, block and animation shaders and uniform blocks");
         Ok(())
     }
 
@@ -245,7 +244,6 @@ impl Step for Celestials {
             &EFFECT_SPRITES_NEW,
             "effect_background/effect_background_ambient have no pre-1.21.11 equivalent (large/small sprites); they were not converted",
         );
-        warn_if_shaders(pack, ctx, "1.21.11 changed the terrain, block and animation shaders and uniform blocks");
         Ok(())
     }
 }
