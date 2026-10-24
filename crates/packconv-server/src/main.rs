@@ -9,7 +9,7 @@ use axum::http::{header, HeaderValue, StatusCode};
 use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post};
 use axum::{Json, Router};
-use packconv_core::{convert, supported_versions, ConvertOptions, Error, Limits};
+use packconv_core::{convert, repair, supported_versions, ConvertOptions, Error, Limits, RepairOptions};
 use serde::Deserialize;
 use tokio::sync::Semaphore;
 
@@ -63,6 +63,7 @@ async fn main() {
         .route("/health", get(|| async { "ok" }))
         .route("/versions", get(|| async { Json(supported_versions()) }))
         .route("/convert", post(convert_handler))
+        .route("/repair", post(repair_handler))
         .with_state(state);
 
     let listener = tokio::net::TcpListener::bind(addr).await.expect("failed to bind");
@@ -104,6 +105,9 @@ impl Drop for QueueSlot<'_> {
     }
 }
 
+/// Result of a job: the ZIP to send back and the report for the `x-packconv-report` header.
+type JobOutput = packconv_core::Result<(Vec<u8>, serde_json::Value)>;
+
 /// `POST /convert?to=<version>[&from=<version>]` with the raw ZIP/RAR archive as the body.
 /// Responds with the converted ZIP; the conversion report is in the `x-packconv-report` header.
 async fn convert_handler(
@@ -111,6 +115,38 @@ async fn convert_handler(
     Query(query): Query<ConvertQuery>,
     body: Body,
 ) -> Response {
+    let limits = state.limits;
+    run_job(&state, body, "converted.zip", move |input, cancel| {
+        let options = ConvertOptions { from: query.from, to: query.to, limits, cancel: Some(cancel) };
+        convert(input, &options).map(|out| (out.zip, out.report.header_summary()))
+    })
+    .await
+}
+
+/// `POST /repair` with the raw ZIP/RAR archive as the body. Re-encodes badly saved PNG and
+/// JSON files without changing the pack version; the report is in `x-packconv-report`.
+async fn repair_handler(State(state): State<Arc<AppState>>, body: Body) -> Response {
+    let limits = state.limits;
+    run_job(&state, body, "repaired.zip", move |input, cancel| {
+        let options = RepairOptions { limits, cancel: Some(cancel) };
+        repair(input, &options).map(|out| {
+            let summary = serde_json::json!({
+                "repaired": out.report.repaired.len(),
+                "warnings": out.report.warnings.len(),
+                "files": out.report.files,
+            });
+            (out.zip, summary)
+        })
+    })
+    .await
+}
+
+/// Runs one CPU-bound job under the server's admission limits: queue cap, job slots,
+/// upload size and timeout with cooperative cancellation.
+async fn run_job<F>(state: &AppState, body: Body, filename: &'static str, job: F) -> Response
+where
+    F: FnOnce(&[u8], Arc<AtomicBool>) -> JobOutput + Send + 'static,
+{
     if state.queued.fetch_add(1, Ordering::Relaxed) >= state.max_queue {
         state.queued.fetch_sub(1, Ordering::Relaxed);
         return error(StatusCode::TOO_MANY_REQUESTS, "server busy, retry later");
@@ -128,15 +164,10 @@ async fn convert_handler(
     };
 
     let cancel = Arc::new(AtomicBool::new(false));
-    let options = ConvertOptions {
-        from: query.from,
-        to: query.to,
-        limits: state.limits,
-        cancel: Some(cancel.clone()),
-    };
+    let task_cancel = cancel.clone();
     let task = tokio::task::spawn_blocking(move || {
         let _permit = permit;
-        convert(&input, &options)
+        job(&input, task_cancel)
     });
     // Dropping the handler (client gone) must also stop the work, not just the waiting.
     let _cancel_on_drop = CancelOnDrop(cancel.clone());
@@ -145,22 +176,21 @@ async fn convert_handler(
         Ok(joined) => joined,
         Err(_) => {
             cancel.store(true, Ordering::Relaxed);
-            return error(StatusCode::GATEWAY_TIMEOUT, "conversion took too long");
+            return error(StatusCode::GATEWAY_TIMEOUT, "job took too long");
         }
     };
 
     match result {
-        Ok(Ok(output)) => {
-            let report = serde_json::to_string(&output.report.header_summary())
-                .expect("report serializes");
-            let mut response = output.zip.into_response();
+        Ok(Ok((zip, report))) => {
+            let mut response = zip.into_response();
             let headers = response.headers_mut();
             headers.insert(header::CONTENT_TYPE, HeaderValue::from_static("application/zip"));
+            let disposition = format!("attachment; filename=\"{filename}\"");
             headers.insert(
                 header::CONTENT_DISPOSITION,
-                HeaderValue::from_static("attachment; filename=\"converted.zip\""),
+                HeaderValue::from_str(&disposition).expect("static filename is a valid header"),
             );
-            match HeaderValue::from_str(&report) {
+            match HeaderValue::from_str(&report.to_string()) {
                 Ok(value) => {
                     headers.insert("x-packconv-report", value);
                 }
@@ -168,10 +198,10 @@ async fn convert_handler(
             }
             response
         }
-        Ok(Err(Error::Cancelled)) => error(StatusCode::GATEWAY_TIMEOUT, "conversion took too long"),
+        Ok(Err(Error::Cancelled)) => error(StatusCode::GATEWAY_TIMEOUT, "job took too long"),
         Ok(Err(err)) => error(StatusCode::UNPROCESSABLE_ENTITY, err.to_string()),
         Err(err) => {
-            tracing::error!("conversion task failed: {err}");
+            tracing::error!("job task failed: {err}");
             error(StatusCode::INTERNAL_SERVER_ERROR, "internal error")
         }
     }
