@@ -24,7 +24,7 @@ impl Write for SharedBuf {
 /// solid archives linear instead of re-decoding predecessors per member.
 pub(crate) fn read_rar(bytes: &[u8], limits: Limits) -> Result<Pack> {
     let options = rars::ArchiveReadOptions::new().with_max_total_output_bytes(limits.max_total_size);
-    let archive = rars::ArchiveReader::read_with_options(bytes, options.clone())
+    let archive = rars::ArchiveReader::read_with_options(bytes, options)
         .map_err(|e| Error::Rar(e.to_string()))?;
 
     let mut entries: Vec<(String, Rc<RefCell<Vec<u8>>>)> = Vec::new();
