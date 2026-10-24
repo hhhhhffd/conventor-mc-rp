@@ -1,0 +1,782 @@
+# id<TAB>tints of the vanilla 1.21.4 items/<id>.json (compact JSON, empty if none); only plain `model` definitions that do not point at item/<id>
+acacia_button	
+acacia_fence	
+acacia_fence_gate	
+acacia_leaves	[{"type":"minecraft:constant","value":-12012264}]
+acacia_log	
+acacia_planks	
+acacia_pressure_plate	
+acacia_slab	
+acacia_stairs	
+acacia_trapdoor	
+acacia_wood	
+allay_spawn_egg	[{"type":"minecraft:constant","value":-16721153},{"type":"minecraft:constant","value":-16732673}]
+amethyst_block	
+ancient_debris	
+andesite	
+andesite_slab	
+andesite_stairs	
+andesite_wall	
+anvil	
+armadillo_spawn_egg	[{"type":"minecraft:constant","value":-5410451},{"type":"minecraft:constant","value":-8239032}]
+axolotl_spawn_egg	[{"type":"minecraft:constant","value":-278045},{"type":"minecraft:constant","value":-5886604}]
+azalea	
+azalea_leaves	
+bamboo_block	
+bamboo_button	
+bamboo_fence	
+bamboo_fence_gate	
+bamboo_mosaic	
+bamboo_mosaic_slab	
+bamboo_mosaic_stairs	
+bamboo_planks	
+bamboo_pressure_plate	
+bamboo_slab	
+bamboo_stairs	
+bamboo_trapdoor	
+barrel	
+basalt	
+bat_spawn_egg	[{"type":"minecraft:constant","value":-11780560},{"type":"minecraft:constant","value":-15790321}]
+beacon	
+bedrock	
+bee_spawn_egg	[{"type":"minecraft:constant","value":-1195197},{"type":"minecraft:constant","value":-12377061}]
+birch_button	
+birch_fence	
+birch_fence_gate	
+birch_leaves	[{"type":"minecraft:constant","value":-8345771}]
+birch_log	
+birch_planks	
+birch_pressure_plate	
+birch_slab	
+birch_stairs	
+birch_trapdoor	
+birch_wood	
+black_carpet	
+black_concrete	
+black_concrete_powder	
+black_glazed_terracotta	
+black_stained_glass	
+black_terracotta	
+black_wool	
+blackstone	
+blackstone_slab	
+blackstone_stairs	
+blackstone_wall	
+blast_furnace	
+blaze_spawn_egg	[{"type":"minecraft:constant","value":-609791},{"type":"minecraft:constant","value":-1922}]
+blue_carpet	
+blue_concrete	
+blue_concrete_powder	
+blue_glazed_terracotta	
+blue_ice	
+blue_stained_glass	
+blue_terracotta	
+blue_wool	
+bogged_spawn_egg	[{"type":"minecraft:constant","value":-7693198},{"type":"minecraft:constant","value":-13546213}]
+bone_block	
+bookshelf	
+brain_coral_block	
+breeze_spawn_egg	[{"type":"minecraft:constant","value":-5270305},{"type":"minecraft:constant","value":-7248161}]
+brick_slab	
+brick_stairs	
+brick_wall	
+bricks	
+brown_carpet	
+brown_concrete	
+brown_concrete_powder	
+brown_glazed_terracotta	
+brown_mushroom_block	
+brown_stained_glass	
+brown_terracotta	
+brown_wool	
+bubble_coral_block	
+budding_amethyst	
+cactus	
+calcite	
+calibrated_sculk_sensor	
+camel_spawn_egg	[{"type":"minecraft:constant","value":-212119},{"type":"minecraft:constant","value":-3435721}]
+cartography_table	
+carved_pumpkin	
+cat_spawn_egg	[{"type":"minecraft:constant","value":-1062770},{"type":"minecraft:constant","value":-6983082}]
+cave_spider_spawn_egg	[{"type":"minecraft:constant","value":-15973810},{"type":"minecraft:constant","value":-5763570}]
+chain_command_block	
+cherry_button	
+cherry_fence	
+cherry_fence_gate	
+cherry_leaves	
+cherry_log	
+cherry_planks	
+cherry_pressure_plate	
+cherry_slab	
+cherry_stairs	
+cherry_trapdoor	
+cherry_wood	
+chicken_spawn_egg	[{"type":"minecraft:constant","value":-6184543},{"type":"minecraft:constant","value":-65536}]
+chipped_anvil	
+chiseled_bookshelf	
+chiseled_copper	
+chiseled_deepslate	
+chiseled_nether_bricks	
+chiseled_polished_blackstone	
+chiseled_quartz_block	
+chiseled_red_sandstone	
+chiseled_resin_bricks	
+chiseled_sandstone	
+chiseled_stone_bricks	
+chiseled_tuff	
+chiseled_tuff_bricks	
+chorus_flower	
+chorus_plant	
+clay	
+coal_block	
+coal_ore	
+coarse_dirt	
+cobbled_deepslate	
+cobbled_deepslate_slab	
+cobbled_deepslate_stairs	
+cobbled_deepslate_wall	
+cobblestone	
+cobblestone_slab	
+cobblestone_stairs	
+cobblestone_wall	
+cod_spawn_egg	[{"type":"minecraft:constant","value":-4085910},{"type":"minecraft:constant","value":-1719157}]
+command_block	
+composter	
+copper_block	
+copper_bulb	
+copper_grate	
+copper_ore	
+copper_trapdoor	
+cow_spawn_egg	[{"type":"minecraft:constant","value":-12306906},{"type":"minecraft:constant","value":-6184543}]
+cracked_deepslate_bricks	
+cracked_deepslate_tiles	
+cracked_nether_bricks	
+cracked_polished_blackstone_bricks	
+cracked_stone_bricks	
+crafter	
+crafting_table	
+creaking_heart	
+creaking_spawn_egg	[{"type":"minecraft:constant","value":-10526881},{"type":"minecraft:constant","value":-231406}]
+creeper_spawn_egg	[{"type":"minecraft:constant","value":-15882485},{"type":"minecraft:constant","value":-16777216}]
+crimson_button	
+crimson_fence	
+crimson_fence_gate	
+crimson_hyphae	
+crimson_nylium	
+crimson_planks	
+crimson_pressure_plate	
+crimson_slab	
+crimson_stairs	
+crimson_stem	
+crimson_trapdoor	
+crying_obsidian	
+cut_copper	
+cut_copper_slab	
+cut_copper_stairs	
+cut_red_sandstone	
+cut_red_sandstone_slab	
+cut_sandstone	
+cut_sandstone_slab	
+cyan_carpet	
+cyan_concrete	
+cyan_concrete_powder	
+cyan_glazed_terracotta	
+cyan_stained_glass	
+cyan_terracotta	
+cyan_wool	
+damaged_anvil	
+dark_oak_button	
+dark_oak_fence	
+dark_oak_fence_gate	
+dark_oak_leaves	[{"type":"minecraft:constant","value":-12012264}]
+dark_oak_log	
+dark_oak_planks	
+dark_oak_pressure_plate	
+dark_oak_slab	
+dark_oak_stairs	
+dark_oak_trapdoor	
+dark_oak_wood	
+dark_prismarine	
+dark_prismarine_slab	
+dark_prismarine_stairs	
+daylight_detector	
+dead_brain_coral_block	
+dead_bubble_coral_block	
+dead_fire_coral_block	
+dead_horn_coral_block	
+dead_tube_coral_block	
+deepslate	
+deepslate_brick_slab	
+deepslate_brick_stairs	
+deepslate_brick_wall	
+deepslate_bricks	
+deepslate_coal_ore	
+deepslate_copper_ore	
+deepslate_diamond_ore	
+deepslate_emerald_ore	
+deepslate_gold_ore	
+deepslate_iron_ore	
+deepslate_lapis_ore	
+deepslate_redstone_ore	
+deepslate_tile_slab	
+deepslate_tile_stairs	
+deepslate_tile_wall	
+deepslate_tiles	
+diamond_block	
+diamond_ore	
+diorite	
+diorite_slab	
+diorite_stairs	
+diorite_wall	
+dirt	
+dirt_path	
+dispenser	
+dolphin_spawn_egg	[{"type":"minecraft:constant","value":-14533811},{"type":"minecraft:constant","value":-394759}]
+donkey_spawn_egg	[{"type":"minecraft:constant","value":-11320007},{"type":"minecraft:constant","value":-7965338}]
+dragon_egg	
+dried_kelp_block	
+dripstone_block	
+dropper	
+drowned_spawn_egg	[{"type":"minecraft:constant","value":-7343657},{"type":"minecraft:constant","value":-8807323}]
+elder_guardian_spawn_egg	[{"type":"minecraft:constant","value":-3224390},{"type":"minecraft:constant","value":-9144685}]
+emerald_block	
+emerald_ore	
+enchanting_table	
+end_portal_frame	
+end_rod	
+end_stone	
+end_stone_brick_slab	
+end_stone_brick_stairs	
+end_stone_brick_wall	
+end_stone_bricks	
+ender_dragon_spawn_egg	[{"type":"minecraft:constant","value":-14935012},{"type":"minecraft:constant","value":-2065926}]
+enderman_spawn_egg	[{"type":"minecraft:constant","value":-15329770},{"type":"minecraft:constant","value":-16777216}]
+endermite_spawn_egg	[{"type":"minecraft:constant","value":-15329770},{"type":"minecraft:constant","value":-9539986}]
+evoker_spawn_egg	[{"type":"minecraft:constant","value":-6972517},{"type":"minecraft:constant","value":-14803942}]
+exposed_chiseled_copper	
+exposed_copper	
+exposed_copper_bulb	
+exposed_copper_grate	
+exposed_copper_trapdoor	
+exposed_cut_copper	
+exposed_cut_copper_slab	
+exposed_cut_copper_stairs	
+farmland	
+fern	[{"type":"minecraft:grass","downfall":1.0,"temperature":0.5}]
+filled_map	[{"type":"minecraft:constant","value":-1},{"type":"minecraft:map_color","default":4603950}]
+fire_coral_block	
+firework_star	[{"type":"minecraft:constant","value":-1},{"type":"minecraft:firework","default":-7697782}]
+fletching_table	
+flowering_azalea	
+flowering_azalea_leaves	
+fox_spawn_egg	[{"type":"minecraft:constant","value":-2771297},{"type":"minecraft:constant","value":-3380960}]
+frog_spawn_egg	[{"type":"minecraft:constant","value":-3115964},{"type":"minecraft:constant","value":-14468}]
+furnace	
+ghast_spawn_egg	[{"type":"minecraft:constant","value":-394759},{"type":"minecraft:constant","value":-4408132}]
+gilded_blackstone	
+glass	
+glow_squid_spawn_egg	[{"type":"minecraft:constant","value":-16165290},{"type":"minecraft:constant","value":-7999044}]
+glowstone	
+goat_spawn_egg	[{"type":"minecraft:constant","value":-5925764},{"type":"minecraft:constant","value":-11187906}]
+gold_block	
+gold_ore	
+granite	
+granite_slab	
+granite_stairs	
+granite_wall	
+grass_block	[{"type":"minecraft:grass","downfall":1.0,"temperature":0.5}]
+gravel	
+gray_carpet	
+gray_concrete	
+gray_concrete_powder	
+gray_glazed_terracotta	
+gray_stained_glass	
+gray_terracotta	
+gray_wool	
+green_carpet	
+green_concrete	
+green_concrete_powder	
+green_glazed_terracotta	
+green_stained_glass	
+green_terracotta	
+green_wool	
+grindstone	
+guardian_spawn_egg	[{"type":"minecraft:constant","value":-10845582},{"type":"minecraft:constant","value":-950992}]
+hay_block	
+heavy_core	
+heavy_weighted_pressure_plate	
+hoglin_spawn_egg	[{"type":"minecraft:constant","value":-3772843},{"type":"minecraft:constant","value":-10525596}]
+honey_block	
+honeycomb_block	
+horn_coral_block	
+horse_spawn_egg	[{"type":"minecraft:constant","value":-4153731},{"type":"minecraft:constant","value":-1121024}]
+husk_spawn_egg	[{"type":"minecraft:constant","value":-8818591},{"type":"minecraft:constant","value":-1651564}]
+ice	
+infested_chiseled_stone_bricks	
+infested_cobblestone	
+infested_cracked_stone_bricks	
+infested_deepslate	
+infested_mossy_stone_bricks	
+infested_stone	
+infested_stone_bricks	
+iron_block	
+iron_golem_spawn_egg	[{"type":"minecraft:constant","value":-2372158},{"type":"minecraft:constant","value":-9133262}]
+iron_ore	
+iron_trapdoor	
+jack_o_lantern	
+jigsaw	
+jukebox	
+jungle_button	
+jungle_fence	
+jungle_fence_gate	
+jungle_leaves	[{"type":"minecraft:constant","value":-12012264}]
+jungle_log	
+jungle_planks	
+jungle_pressure_plate	
+jungle_slab	
+jungle_stairs	
+jungle_trapdoor	
+jungle_wood	
+lapis_block	
+lapis_ore	
+large_fern	[{"type":"minecraft:grass","downfall":1.0,"temperature":0.5}]
+leather_horse_armor	[{"type":"minecraft:dye","default":-6265536}]
+lectern	
+light_blue_carpet	
+light_blue_concrete	
+light_blue_concrete_powder	
+light_blue_glazed_terracotta	
+light_blue_stained_glass	
+light_blue_terracotta	
+light_blue_wool	
+light_gray_carpet	
+light_gray_concrete	
+light_gray_concrete_powder	
+light_gray_glazed_terracotta	
+light_gray_stained_glass	
+light_gray_terracotta	
+light_gray_wool	
+light_weighted_pressure_plate	
+lightning_rod	
+lily_pad	[{"type":"minecraft:constant","value":-9321636}]
+lime_carpet	
+lime_concrete	
+lime_concrete_powder	
+lime_glazed_terracotta	
+lime_stained_glass	
+lime_terracotta	
+lime_wool	
+lingering_potion	[{"type":"minecraft:potion","default":-13083194}]
+llama_spawn_egg	[{"type":"minecraft:constant","value":-4153731},{"type":"minecraft:constant","value":-6725824}]
+lodestone	
+loom	
+magenta_carpet	
+magenta_concrete	
+magenta_concrete_powder	
+magenta_glazed_terracotta	
+magenta_stained_glass	
+magenta_terracotta	
+magenta_wool	
+magma_block	
+magma_cube_spawn_egg	[{"type":"minecraft:constant","value":-13369344},{"type":"minecraft:constant","value":-197632}]
+mangrove_button	
+mangrove_fence	
+mangrove_fence_gate	
+mangrove_leaves	[{"type":"minecraft:constant","value":-7158200}]
+mangrove_log	
+mangrove_planks	
+mangrove_pressure_plate	
+mangrove_roots	
+mangrove_slab	
+mangrove_stairs	
+mangrove_trapdoor	
+mangrove_wood	
+melon	
+mooshroom_spawn_egg	[{"type":"minecraft:constant","value":-6287600},{"type":"minecraft:constant","value":-4737097}]
+moss_block	
+moss_carpet	
+mossy_cobblestone	
+mossy_cobblestone_slab	
+mossy_cobblestone_stairs	
+mossy_cobblestone_wall	
+mossy_stone_brick_slab	
+mossy_stone_brick_stairs	
+mossy_stone_brick_wall	
+mossy_stone_bricks	
+mud	
+mud_brick_slab	
+mud_brick_stairs	
+mud_brick_wall	
+mud_bricks	
+muddy_mangrove_roots	
+mule_spawn_egg	[{"type":"minecraft:constant","value":-15007232},{"type":"minecraft:constant","value":-11455715}]
+mushroom_stem	
+mycelium	
+nether_brick_fence	
+nether_brick_slab	
+nether_brick_stairs	
+nether_brick_wall	
+nether_bricks	
+nether_gold_ore	
+nether_quartz_ore	
+nether_wart_block	
+netherite_block	
+netherrack	
+note_block	
+oak_button	
+oak_fence	
+oak_fence_gate	
+oak_leaves	[{"type":"minecraft:constant","value":-12012264}]
+oak_log	
+oak_planks	
+oak_pressure_plate	
+oak_slab	
+oak_stairs	
+oak_trapdoor	
+oak_wood	
+observer	
+obsidian	
+ocelot_spawn_egg	[{"type":"minecraft:constant","value":-1057155},{"type":"minecraft:constant","value":-11123660}]
+ochre_froglight	
+orange_carpet	
+orange_concrete	
+orange_concrete_powder	
+orange_glazed_terracotta	
+orange_stained_glass	
+orange_terracotta	
+orange_wool	
+oxidized_chiseled_copper	
+oxidized_copper	
+oxidized_copper_bulb	
+oxidized_copper_grate	
+oxidized_copper_trapdoor	
+oxidized_cut_copper	
+oxidized_cut_copper_slab	
+oxidized_cut_copper_stairs	
+packed_ice	
+packed_mud	
+pale_moss_block	
+pale_moss_carpet	
+pale_oak_button	
+pale_oak_fence	
+pale_oak_fence_gate	
+pale_oak_leaves	
+pale_oak_log	
+pale_oak_planks	
+pale_oak_pressure_plate	
+pale_oak_slab	
+pale_oak_stairs	
+pale_oak_trapdoor	
+pale_oak_wood	
+panda_spawn_egg	[{"type":"minecraft:constant","value":-1579033},{"type":"minecraft:constant","value":-15000798}]
+parrot_spawn_egg	[{"type":"minecraft:constant","value":-15882485},{"type":"minecraft:constant","value":-65536}]
+pearlescent_froglight	
+petrified_oak_slab	
+phantom_spawn_egg	[{"type":"minecraft:constant","value":-12365430},{"type":"minecraft:constant","value":-7799040}]
+pig_spawn_egg	[{"type":"minecraft:constant","value":-1006174},{"type":"minecraft:constant","value":-2399393}]
+piglin_brute_spawn_egg	[{"type":"minecraft:constant","value":-10933744},{"type":"minecraft:constant","value":-396380}]
+piglin_spawn_egg	[{"type":"minecraft:constant","value":-6725824},{"type":"minecraft:constant","value":-396380}]
+pillager_spawn_egg	[{"type":"minecraft:constant","value":-11325642},{"type":"minecraft:constant","value":-6972517}]
+pink_carpet	
+pink_concrete	
+pink_concrete_powder	
+pink_glazed_terracotta	
+pink_stained_glass	
+pink_terracotta	
+pink_wool	
+piston	
+podzol	
+polar_bear_spawn_egg	[{"type":"minecraft:constant","value":-1118498},{"type":"minecraft:constant","value":-2763059}]
+polished_andesite	
+polished_andesite_slab	
+polished_andesite_stairs	
+polished_basalt	
+polished_blackstone	
+polished_blackstone_brick_slab	
+polished_blackstone_brick_stairs	
+polished_blackstone_brick_wall	
+polished_blackstone_bricks	
+polished_blackstone_button	
+polished_blackstone_pressure_plate	
+polished_blackstone_slab	
+polished_blackstone_stairs	
+polished_blackstone_wall	
+polished_deepslate	
+polished_deepslate_slab	
+polished_deepslate_stairs	
+polished_deepslate_wall	
+polished_diorite	
+polished_diorite_slab	
+polished_diorite_stairs	
+polished_granite	
+polished_granite_slab	
+polished_granite_stairs	
+polished_tuff	
+polished_tuff_slab	
+polished_tuff_stairs	
+polished_tuff_wall	
+potion	[{"type":"minecraft:potion","default":-13083194}]
+prismarine	
+prismarine_brick_slab	
+prismarine_brick_stairs	
+prismarine_bricks	
+prismarine_slab	
+prismarine_stairs	
+prismarine_wall	
+pufferfish_spawn_egg	[{"type":"minecraft:constant","value":-609791},{"type":"minecraft:constant","value":-13122574}]
+pumpkin	
+purple_carpet	
+purple_concrete	
+purple_concrete_powder	
+purple_glazed_terracotta	
+purple_stained_glass	
+purple_terracotta	
+purple_wool	
+purpur_block	
+purpur_pillar	
+purpur_slab	
+purpur_stairs	
+quartz_block	
+quartz_bricks	
+quartz_pillar	
+quartz_slab	
+quartz_stairs	
+rabbit_spawn_egg	[{"type":"minecraft:constant","value":-6725824},{"type":"minecraft:constant","value":-9222095}]
+ravager_spawn_egg	[{"type":"minecraft:constant","value":-9079696},{"type":"minecraft:constant","value":-10792887}]
+raw_copper_block	
+raw_gold_block	
+raw_iron_block	
+red_carpet	
+red_concrete	
+red_concrete_powder	
+red_glazed_terracotta	
+red_mushroom_block	
+red_nether_brick_slab	
+red_nether_brick_stairs	
+red_nether_brick_wall	
+red_nether_bricks	
+red_sand	
+red_sandstone	
+red_sandstone_slab	
+red_sandstone_stairs	
+red_sandstone_wall	
+red_stained_glass	
+red_terracotta	
+red_wool	
+redstone_block	
+redstone_lamp	
+redstone_ore	
+reinforced_deepslate	
+repeating_command_block	
+resin_block	
+resin_brick_slab	
+resin_brick_stairs	
+resin_brick_wall	
+resin_bricks	
+respawn_anchor	
+rooted_dirt	
+salmon_spawn_egg	[{"type":"minecraft:constant","value":-6287600},{"type":"minecraft:constant","value":-15825804}]
+sand	
+sandstone	
+sandstone_slab	
+sandstone_stairs	
+sandstone_wall	
+scaffolding	
+sculk	
+sculk_catalyst	
+sculk_sensor	
+sculk_shrieker	
+sea_lantern	
+sheep_spawn_egg	[{"type":"minecraft:constant","value":-1579033},{"type":"minecraft:constant","value":-19019}]
+short_grass	[{"type":"minecraft:grass","downfall":1.0,"temperature":0.5}]
+shroomlight	
+shulker_spawn_egg	[{"type":"minecraft:constant","value":-7051372},{"type":"minecraft:constant","value":-11716526}]
+silverfish_spawn_egg	[{"type":"minecraft:constant","value":-9539986},{"type":"minecraft:constant","value":-13619152}]
+skeleton_horse_spawn_egg	[{"type":"minecraft:constant","value":-9934769},{"type":"minecraft:constant","value":-1710632}]
+skeleton_spawn_egg	[{"type":"minecraft:constant","value":-4079167},{"type":"minecraft:constant","value":-11974327}]
+slime_block	
+slime_spawn_egg	[{"type":"minecraft:constant","value":-11427778},{"type":"minecraft:constant","value":-8470674}]
+smithing_table	
+smoker	
+smooth_basalt	
+smooth_quartz	
+smooth_quartz_slab	
+smooth_quartz_stairs	
+smooth_red_sandstone	
+smooth_red_sandstone_slab	
+smooth_red_sandstone_stairs	
+smooth_sandstone	
+smooth_sandstone_slab	
+smooth_sandstone_stairs	
+smooth_stone	
+smooth_stone_slab	
+sniffer_spawn_egg	[{"type":"minecraft:constant","value":-7922167},{"type":"minecraft:constant","value":-14308496}]
+snow	
+snow_block	
+snow_golem_spawn_egg	[{"type":"minecraft:constant","value":-2493710},{"type":"minecraft:constant","value":-8280924}]
+soul_sand	
+soul_soil	
+spawner	
+spider_spawn_egg	[{"type":"minecraft:constant","value":-13357785},{"type":"minecraft:constant","value":-5763570}]
+splash_potion	[{"type":"minecraft:potion","default":-13083194}]
+sponge	
+spore_blossom	
+spruce_button	
+spruce_fence	
+spruce_fence_gate	
+spruce_leaves	[{"type":"minecraft:constant","value":-10380959}]
+spruce_log	
+spruce_planks	
+spruce_pressure_plate	
+spruce_slab	
+spruce_stairs	
+spruce_trapdoor	
+spruce_wood	
+squid_spawn_egg	[{"type":"minecraft:constant","value":-14533811},{"type":"minecraft:constant","value":-9402215}]
+sticky_piston	
+stone	
+stone_brick_slab	
+stone_brick_stairs	
+stone_brick_wall	
+stone_bricks	
+stone_button	
+stone_pressure_plate	
+stone_slab	
+stone_stairs	
+stonecutter	
+stray_spawn_egg	[{"type":"minecraft:constant","value":-10389897},{"type":"minecraft:constant","value":-2233622}]
+strider_spawn_egg	[{"type":"minecraft:constant","value":-6540234},{"type":"minecraft:constant","value":-11712179}]
+stripped_acacia_log	
+stripped_acacia_wood	
+stripped_bamboo_block	
+stripped_birch_log	
+stripped_birch_wood	
+stripped_cherry_log	
+stripped_cherry_wood	
+stripped_crimson_hyphae	
+stripped_crimson_stem	
+stripped_dark_oak_log	
+stripped_dark_oak_wood	
+stripped_jungle_log	
+stripped_jungle_wood	
+stripped_mangrove_log	
+stripped_mangrove_wood	
+stripped_oak_log	
+stripped_oak_wood	
+stripped_pale_oak_log	
+stripped_pale_oak_wood	
+stripped_spruce_log	
+stripped_spruce_wood	
+stripped_warped_hyphae	
+stripped_warped_stem	
+structure_block	
+suspicious_gravel	
+suspicious_sand	
+tadpole_spawn_egg	[{"type":"minecraft:constant","value":-9612483},{"type":"minecraft:constant","value":-15332864}]
+tall_grass	[{"type":"minecraft:grass","downfall":1.0,"temperature":0.5}]
+target	
+terracotta	
+tinted_glass	
+tipped_arrow	[{"type":"minecraft:potion","default":-13083194}]
+tnt	
+trader_llama_spawn_egg	[{"type":"minecraft:constant","value":-1399760},{"type":"minecraft:constant","value":-12229994}]
+trial_spawner	
+tropical_fish_spawn_egg	[{"type":"minecraft:constant","value":-1087211},{"type":"minecraft:constant","value":-1553}]
+tube_coral_block	
+tuff	
+tuff_brick_slab	
+tuff_brick_stairs	
+tuff_brick_wall	
+tuff_bricks	
+tuff_slab	
+tuff_stairs	
+tuff_wall	
+turtle_spawn_egg	[{"type":"minecraft:constant","value":-1579033},{"type":"minecraft:constant","value":-16732241}]
+vault	
+verdant_froglight	
+vex_spawn_egg	[{"type":"minecraft:constant","value":-8744796},{"type":"minecraft:constant","value":-1511951}]
+villager_spawn_egg	[{"type":"minecraft:constant","value":-11125709},{"type":"minecraft:constant","value":-4355214}]
+vindicator_spawn_egg	[{"type":"minecraft:constant","value":-6972517},{"type":"minecraft:constant","value":-14197151}]
+vine	[{"type":"minecraft:constant","value":-12012264}]
+wandering_trader_spawn_egg	[{"type":"minecraft:constant","value":-12229994},{"type":"minecraft:constant","value":-1399760}]
+warden_spawn_egg	[{"type":"minecraft:constant","value":-15776183},{"type":"minecraft:constant","value":-12986656}]
+warped_button	
+warped_fence	
+warped_fence_gate	
+warped_hyphae	
+warped_nylium	
+warped_planks	
+warped_pressure_plate	
+warped_slab	
+warped_stairs	
+warped_stem	
+warped_trapdoor	
+warped_wart_block	
+waxed_chiseled_copper	
+waxed_copper_block	
+waxed_copper_bulb	
+waxed_copper_door	
+waxed_copper_grate	
+waxed_copper_trapdoor	
+waxed_cut_copper	
+waxed_cut_copper_slab	
+waxed_cut_copper_stairs	
+waxed_exposed_chiseled_copper	
+waxed_exposed_copper	
+waxed_exposed_copper_bulb	
+waxed_exposed_copper_door	
+waxed_exposed_copper_grate	
+waxed_exposed_copper_trapdoor	
+waxed_exposed_cut_copper	
+waxed_exposed_cut_copper_slab	
+waxed_exposed_cut_copper_stairs	
+waxed_oxidized_chiseled_copper	
+waxed_oxidized_copper	
+waxed_oxidized_copper_bulb	
+waxed_oxidized_copper_door	
+waxed_oxidized_copper_grate	
+waxed_oxidized_copper_trapdoor	
+waxed_oxidized_cut_copper	
+waxed_oxidized_cut_copper_slab	
+waxed_oxidized_cut_copper_stairs	
+waxed_weathered_chiseled_copper	
+waxed_weathered_copper	
+waxed_weathered_copper_bulb	
+waxed_weathered_copper_door	
+waxed_weathered_copper_grate	
+waxed_weathered_copper_trapdoor	
+waxed_weathered_cut_copper	
+waxed_weathered_cut_copper_slab	
+waxed_weathered_cut_copper_stairs	
+weathered_chiseled_copper	
+weathered_copper	
+weathered_copper_bulb	
+weathered_copper_grate	
+weathered_copper_trapdoor	
+weathered_cut_copper	
+weathered_cut_copper_slab	
+weathered_cut_copper_stairs	
+wet_sponge	
+white_carpet	
+white_concrete	
+white_concrete_powder	
+white_glazed_terracotta	
+white_stained_glass	
+white_terracotta	
+white_wool	
+witch_spawn_egg	[{"type":"minecraft:constant","value":-13369344},{"type":"minecraft:constant","value":-11427778}]
+wither_skeleton_spawn_egg	[{"type":"minecraft:constant","value":-15461356},{"type":"minecraft:constant","value":-12104371}]
+wither_spawn_egg	[{"type":"minecraft:constant","value":-15461356},{"type":"minecraft:constant","value":-11701600}]
+wolf_spawn_egg	[{"type":"minecraft:constant","value":-2632749},{"type":"minecraft:constant","value":-3231850}]
+yellow_carpet	
+yellow_concrete	
+yellow_concrete_powder	
+yellow_glazed_terracotta	
+yellow_stained_glass	
+yellow_terracotta	
+yellow_wool	
+zoglin_spawn_egg	[{"type":"minecraft:constant","value":-3772843},{"type":"minecraft:constant","value":-1644826}]
+zombie_horse_spawn_egg	[{"type":"minecraft:constant","value":-13544908},{"type":"minecraft:constant","value":-6831484}]
+zombie_spawn_egg	[{"type":"minecraft:constant","value":-16732241},{"type":"minecraft:constant","value":-8807323}]
+zombie_villager_spawn_egg	[{"type":"minecraft:constant","value":-11125709},{"type":"minecraft:constant","value":-8807323}]
+zombified_piglin_spawn_egg	[{"type":"minecraft:constant","value":-1404013},{"type":"minecraft:constant","value":-11767511}]

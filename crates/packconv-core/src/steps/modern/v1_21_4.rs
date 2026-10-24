@@ -2,7 +2,8 @@
 //! definitions moved from `models/equipment/` to `equipment/`, and empty-slot sprites moved
 //! into the GUI atlas.
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeSet, HashMap};
+use std::sync::OnceLock;
 
 use serde_json::{json, Value};
 
@@ -15,6 +16,9 @@ use crate::version::Version;
 use crate::vfs::Pack;
 
 const SLOT_SPRITES: &str = include_str!("../../../data/modern/slot-sprites-1.21.4.tsv");
+/// Vanilla items whose 1.21.4 definition is a plain `model` that does not simply point at
+/// `item/<id>` (block items, inventory variants, tinted items): `id<TAB>tints`.
+const REDIRECTS: &str = include_str!("../../../data/modern/item-redirects-1.21.4.tsv");
 const ELYTRA: &[(&str, &str)] = &[("item/broken_elytra", "item/elytra_broken")];
 
 pub struct V1_21_4;
@@ -53,6 +57,24 @@ impl Step for V1_21_4 {
     }
 }
 
+/// For each id in the table, the `minecraft` definition that points at the pack's own `item/<id>`
+/// model while keeping the vanilla tints.
+fn redirects() -> &'static HashMap<&'static str, Value> {
+    static MAP: OnceLock<HashMap<&'static str, Value>> = OnceLock::new();
+    MAP.get_or_init(|| {
+        parse_pairs(REDIRECTS)
+            .into_iter()
+            .map(|(id, tints)| {
+                let mut model = json!({"type": "minecraft:model", "model": format!("minecraft:item/{id}")});
+                if !tints.is_empty() {
+                    model["tints"] = serde_json::from_str(tints).expect("vendored tints are valid JSON");
+                }
+                (id, json!({"model": model}))
+            })
+            .collect()
+    })
+}
+
 /// Top-level `<dir>/<name>.json` files of a namespace, as `(path, name)`.
 fn top_level_json(pack: &Pack, ns: &str, dir: &str) -> Vec<(String, String)> {
     let prefix = format!("assets/{ns}/{dir}/");
@@ -66,7 +88,8 @@ fn top_level_json(pack: &Pack, ns: &str, dir: &str) -> Vec<(String, String)> {
 }
 
 /// Writes `items/<id>.json` for every item model that has `overrides`, and strips the overrides.
-/// Vanilla definitions cover everything else, so models without overrides need nothing.
+/// Models without overrides only need a definition when vanilla's does not point at `item/<id>`
+/// (see [`redirects`]); vanilla definitions cover everything else.
 fn generate_definitions(pack: &mut Pack, ctx: &mut Context, ns: &str, notes: &mut BTreeSet<String>) {
     for (path, name) in top_level_json(pack, ns, "models/item") {
         let mut model = match read_json(pack, &path) {
@@ -77,13 +100,16 @@ fn generate_definitions(pack: &mut Pack, ctx: &mut Context, ns: &str, notes: &mu
             }
             None => continue,
         };
-        let Some(overrides) = model.get("overrides").and_then(Value::as_array).filter(|o| !o.is_empty()).cloned() else {
-            continue;
-        };
         let definition_path = format!("assets/{ns}/items/{name}.json");
         if pack.contains(&definition_path) {
             continue;
         }
+        let Some(overrides) = model.get("overrides").and_then(Value::as_array).filter(|o| !o.is_empty()).cloned() else {
+            if let Some(redirect) = redirects().get(name.as_str()).filter(|_| ns == "minecraft") {
+                write_json(pack, &definition_path, redirect);
+            }
+            continue;
+        };
         // builtin/entity models (shield, banner, chest, trident...) need a `special` model type.
         if model.get("parent").and_then(Value::as_str).is_some_and(|p| p.trim_start_matches("minecraft:") == "builtin/entity") {
             notes.insert("overrides of builtin/entity item models (shield, banner, trident, ...) cannot be converted to item definitions".into());
@@ -114,6 +140,9 @@ fn restore_overrides(pack: &mut Pack, ctx: &mut Context, ns: &str, notes: &mut B
             None => continue,
         };
         pack.remove(&path);
+        if ns == "minecraft" && redirects().get(name.as_str()) == Some(&definition) {
+            continue;
+        }
         let Some(flat) = definition_to_overrides(&name, &definition, notes) else { continue };
         let model_path = format!("assets/{ns}/models/item/{name}.json");
         let own_id = format!("{ns}:item/{name}");
@@ -178,6 +207,26 @@ mod tests {
         let definition = json_at(&pack, "assets/minecraft/items/bow.json");
         assert_eq!(definition["model"]["type"], "minecraft:condition");
         assert!(json_at(&pack, "assets/minecraft/models/item/bow.json").get("overrides").is_none());
+    }
+
+    #[test]
+    fn redirects_block_items_and_keeps_tints() {
+        let mut pack = Pack::new();
+        pack.insert("assets/minecraft/models/item/stone.json", br#"{"parent":"block/stone"}"#.to_vec());
+        pack.insert("assets/minecraft/models/item/oak_leaves.json", br#"{"parent":"block/oak_leaves"}"#.to_vec());
+        pack.insert("assets/mymod/models/item/stone.json", br#"{"parent":"block/stone"}"#.to_vec());
+        V1_21_4.upgrade(&mut pack, &mut ctx()).unwrap();
+        assert_eq!(
+            json_at(&pack, "assets/minecraft/items/stone.json"),
+            json!({"model": {"type": "minecraft:model", "model": "minecraft:item/stone"}})
+        );
+        assert!(json_at(&pack, "assets/minecraft/items/oak_leaves.json")["model"]["tints"].is_array());
+        assert!(!pack.contains("assets/mymod/items/stone.json"));
+        let mut ctx = ctx();
+        V1_21_4.downgrade(&mut pack, &mut ctx).unwrap();
+        assert!(!pack.contains("assets/minecraft/items/stone.json"));
+        assert!(!pack.contains("assets/minecraft/items/oak_leaves.json"));
+        assert!(ctx.into_warnings().is_empty());
     }
 
     #[test]
