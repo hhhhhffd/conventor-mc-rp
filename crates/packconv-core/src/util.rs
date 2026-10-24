@@ -6,11 +6,17 @@ use serde_json::Value;
 use crate::error::{Error, Result};
 use crate::vfs::Pack;
 
-/// Parses a JSON file. Tolerates a UTF-8 BOM, which many hand-edited packs contain.
+/// Parses a JSON file. Like the game's lenient parser it tolerates a UTF-8 BOM and trailing
+/// garbage after the first value (e.g. `// comments`), which hand-edited packs often contain.
 pub fn read_json(pack: &Pack, path: &str) -> Option<Result<Value>> {
     let bytes = pack.get(path)?;
     let bytes = bytes.strip_prefix(b"\xEF\xBB\xBF").unwrap_or(bytes);
-    Some(serde_json::from_slice(bytes).map_err(|e| Error::Json(format!("{path}: {e}"))))
+    let first = serde_json::Deserializer::from_slice(bytes).into_iter::<Value>().next();
+    Some(match first {
+        Some(Ok(value)) => Ok(value),
+        Some(Err(e)) => Err(Error::Json(format!("{path}: {e}"))),
+        None => Err(Error::Json(format!("{path}: empty file"))),
+    })
 }
 
 pub fn write_json(pack: &mut Pack, path: &str, value: &Value) {

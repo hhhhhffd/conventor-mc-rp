@@ -123,6 +123,7 @@ pub fn convert_pack(pack: &mut Pack, from: Option<Version>, to: Version) -> Resu
             applied.push(format!("downgrade {} ({})", step.name(), step.version()));
         }
     }
+    meta::adjust_language_codes(pack, to >= Version::new(1, 11, 0))?;
     meta::write_target_meta(pack, target_format)?;
 
     Ok(Report {

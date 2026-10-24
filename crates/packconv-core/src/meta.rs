@@ -4,7 +4,7 @@ use serde_json::{json, Map, Value};
 
 use crate::error::{Error, Result};
 use crate::util::{read_json, write_json};
-use crate::version::{PackFormat, MIN_MAX_FORMAT_SINCE};
+use crate::version::{self, PackFormat, MIN_MAX_FORMAT_SINCE};
 use crate::vfs::Pack;
 
 const META: &str = "pack.mcmeta";
@@ -45,14 +45,17 @@ fn parse_range(value: &Value) -> Option<(PackFormat, PackFormat)> {
     }
 }
 
-/// Format the pack declares. Newer packs may only carry `min_format`; in that case the
-/// newest declared format is used since that is the layout the author targeted.
+/// Format the pack declares. A `max_format` within known releases is the layout the author
+/// targeted; open-ended ranges (e.g. `"max_format": 1000`) fall back to `pack_format` and
+/// then `min_format`.
 pub fn declared_format(pack: &Pack) -> Result<PackFormat> {
     let meta = read_meta(pack)?;
     let section = &meta["pack"];
+    let newest = version::pack_format(version::newest())?;
     section
         .get("max_format")
         .and_then(parse_format)
+        .filter(|f| *f <= newest)
         .or_else(|| section.get("pack_format").and_then(parse_format))
         .or_else(|| section.get("min_format").and_then(parse_format))
         .ok_or_else(|| Error::PackMeta("no pack_format".into()))
@@ -118,6 +121,28 @@ pub fn write_target_meta(pack: &mut Pack, format: PackFormat) -> Result<()> {
     Ok(())
 }
 
+/// Language codes in the `language` section are lowercase since 1.11 (`en_us`) and use an
+/// upper-case region before it (`en_US`), matching the lang file names.
+pub fn adjust_language_codes(pack: &mut Pack, lowercase: bool) -> Result<()> {
+    let mut meta = read_meta(pack)?;
+    let Some(languages) = meta.get_mut("language").and_then(Value::as_object_mut) else {
+        return Ok(());
+    };
+    let recased: Map<String, Value> = std::mem::take(languages)
+        .into_iter()
+        .map(|(code, value)| {
+            let code = match code.split_once('_') {
+                Some((lang, region)) if !lowercase => format!("{lang}_{}", region.to_uppercase()),
+                _ => code.to_lowercase(),
+            };
+            (code, value)
+        })
+        .collect();
+    *languages = recased;
+    write_json(pack, META, &meta);
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -134,6 +159,8 @@ mod tests {
         assert_eq!(declared_format(&p).unwrap(), PackFormat(15, 0));
         let p = pack_with_meta(r#"{"pack":{"min_format":[69,0],"max_format":[75,0]}}"#);
         assert_eq!(declared_format(&p).unwrap(), PackFormat(75, 0));
+        let p = pack_with_meta(r#"{"pack":{"min_format":69,"max_format":1000}}"#);
+        assert_eq!(declared_format(&p).unwrap(), PackFormat(69, 0));
         let p = pack_with_meta("\u{feff}{\"pack\":{\"pack_format\":1}}");
         assert_eq!(declared_format(&p).unwrap(), PackFormat(1, 0));
     }
@@ -163,5 +190,14 @@ mod tests {
         let m = read_meta(&p).unwrap();
         assert_eq!(m["pack"], json!({"min_format":75,"max_format":75,"description":"d"}));
         assert!(m.get("language").is_some());
+    }
+
+    #[test]
+    fn recases_language_codes() {
+        let mut p = pack_with_meta(r#"{"pack":{"pack_format":3},"language":{"xx_YY":{"name":"X"}}}"#);
+        adjust_language_codes(&mut p, true).unwrap();
+        assert!(read_meta(&p).unwrap()["language"].get("xx_yy").is_some());
+        adjust_language_codes(&mut p, false).unwrap();
+        assert!(read_meta(&p).unwrap()["language"].get("xx_YY").is_some());
     }
 }
