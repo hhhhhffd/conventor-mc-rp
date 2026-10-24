@@ -1,0 +1,17 @@
+[package]
+name = "packconv-core"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Minecraft Java resource pack converter (any version 1.8 - 26.3, both directions)"
+
+[dependencies]
+zip = { version = "9.1", default-features = false, features = ["deflate-flate2-zlib-rs", "deflate64"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = { version = "1", features = ["preserve_order"] }
+thiserror = "2"
+image = { version = "0.25", default-features = false, features = ["png"] }
+rars = { version = "=0.12.1", default-features = false }
+
+[dev-dependencies]
+rars = { version = "=0.12.1", default-features = false, features = ["write"] }

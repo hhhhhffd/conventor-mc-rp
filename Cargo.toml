@@ -1,0 +1,16 @@
+[workspace]
+resolver = "2"
+members = ["crates/packconv-core", "crates/packconv-server", "crates/packconv-wasm"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+
+[profile.release]
+lto = true
+codegen-units = 1
+opt-level = 3
+
+[profile.release.package.packconv-wasm]
+opt-level = "s"

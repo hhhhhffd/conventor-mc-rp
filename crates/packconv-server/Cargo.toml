@@ -1,0 +1,18 @@
+[package]
+name = "packconv-server"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "packconv"
+path = "src/main.rs"
+
+[dependencies]
+packconv-core = { path = "../packconv-core" }
+axum = "0.8"
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "net", "signal", "sync"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }

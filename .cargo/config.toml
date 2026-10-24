@@ -1,0 +1,3 @@
+# Keep builds from saturating the developer machine.
+[build]
+jobs = 2
