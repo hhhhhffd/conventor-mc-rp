@@ -27,7 +27,7 @@ impl ConvertResult {
 /// `pack.mcmeta` when omitted.
 #[wasm_bindgen]
 pub fn convert(input: &[u8], to: String, from: Option<String>) -> Result<ConvertResult, JsError> {
-    let options = ConvertOptions { from, to, limits: Limits::default() };
+    let options = ConvertOptions { from, to, limits: Limits::default(), cancel: None };
     let output = packconv_core::convert(input, &options)?;
     let report = serde_json::to_string(&output.report)?;
     Ok(ConvertResult { zip: output.zip, report })

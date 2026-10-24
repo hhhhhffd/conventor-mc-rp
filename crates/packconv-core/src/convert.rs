@@ -1,7 +1,10 @@
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
+
 use serde::Serialize;
 
 use crate::archive::{read_archive, write_zip, Limits};
-use crate::error::Result;
+use crate::error::{Error, Result};
 use crate::meta;
 use crate::step::Context;
 use crate::steps;
@@ -14,6 +17,8 @@ pub struct ConvertOptions {
     pub from: Option<String>,
     pub to: String,
     pub limits: Limits,
+    /// Set by the caller to abort a running conversion (checked between steps).
+    pub cancel: Option<Arc<AtomicBool>>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -58,7 +63,9 @@ pub fn convert(input: &[u8], options: &ConvertOptions) -> Result<ConvertOutput> 
     let to: Version = options.to.parse()?;
     let from = options.from.as_deref().map(str::parse::<Version>).transpose()?;
     let mut pack = read_archive(input, options.limits)?;
-    let report = convert_pack(&mut pack, from, to)?;
+    let never = AtomicBool::new(false);
+    let cancel = options.cancel.as_deref().unwrap_or(&never);
+    let report = convert_pack(&mut pack, from, to, cancel)?;
     Ok(ConvertOutput { zip: write_zip(&pack)?, report })
 }
 
@@ -80,13 +87,34 @@ fn detect_version(pack: &Pack, (min, max): (PackFormat, PackFormat), to: Version
         return Ok(if has_models { Version(1, 8, 9) } else { Version(1, 7, 10) });
     }
     let target = version::pack_format(to)?;
-    if target < min {
-        Ok(version::version_for_format(min))
+    let detected = if target < min {
+        version::version_for_format(min)
     } else if target > max {
-        Ok(version::version_for_format(max))
+        version::version_for_format(max)
     } else {
-        Ok(to)
+        return Ok(to);
+    };
+    // Format 4 spans 1.13 and 1.14; 1.13 packs still have the sheets that 1.14 sliced.
+    let format_4_sheets = [
+        "assets/minecraft/textures/particle/particles.png",
+        "assets/minecraft/textures/painting/paintings_kristoffer_zetterstrand.png",
+    ];
+    if version::pack_format(detected)? == PackFormat(4, 0) && format_4_sheets.iter().any(|p| pack.contains(p)) {
+        return Ok(Version(1, 13, 2));
     }
+    Ok(detected)
+}
+
+/// Files the converter touches: vanilla namespaces only. Other namespaces (mods), OptiFine and
+/// MCPatcher folders and anything outside `assets/` pass through unchanged.
+fn is_official(path: &str) -> bool {
+    if path == "pack.mcmeta" || path == "pack.png" {
+        return true;
+    }
+    let Some(rest) = path.strip_prefix("assets/minecraft/").or_else(|| path.strip_prefix("assets/realms/")) else {
+        return false;
+    };
+    !(rest.starts_with("optifine/") || rest.starts_with("mcpatcher/"))
 }
 
 fn remove_junk(pack: &mut Pack) {
@@ -103,36 +131,39 @@ fn remove_junk(pack: &mut Pack) {
     }
 }
 
-/// Converts an unpacked pack in place.
-pub fn convert_pack(pack: &mut Pack, from: Option<Version>, to: Version) -> Result<Report> {
+/// Converts an unpacked pack in place. Fails with [`Error::Cancelled`] once `cancel` is set.
+pub fn convert_pack(pack: &mut Pack, from: Option<Version>, to: Version, cancel: &AtomicBool) -> Result<Report> {
     let target_format = version::pack_format(to)?;
     let files_in = pack.len();
     remove_junk(pack);
 
-    let declared = meta::declared_range(pack)?;
     let from = match from {
         Some(v) => {
             version::pack_format(v)?;
             v
         }
-        None => detect_version(pack, declared, to)?,
+        None => detect_version(pack, meta::declared_range(pack)?, to)?,
     };
     meta::flatten_overlays(pack, version::pack_format(from)?)?;
+    let passthrough = pack.split_off(|p| !is_official(p));
 
     let mut ctx = Context::new(from, to);
     let mut applied = Vec::new();
     let all = steps::all();
     if from < to {
         for step in all.iter().filter(|s| from < s.version() && s.version() <= to) {
+            check_cancel(cancel)?;
             step.upgrade(pack, &mut ctx)?;
             applied.push(format!("upgrade {} ({})", step.name(), step.version()));
         }
     } else {
         for step in all.iter().rev().filter(|s| to < s.version() && s.version() <= from) {
+            check_cancel(cancel)?;
             step.downgrade(pack, &mut ctx)?;
             applied.push(format!("downgrade {} ({})", step.name(), step.version()));
         }
     }
+    pack.merge(passthrough);
     meta::adjust_language_codes(pack, to >= Version::new(1, 11, 0))?;
     meta::write_target_meta(pack, target_format)?;
 
@@ -145,4 +176,41 @@ pub fn convert_pack(pack: &mut Pack, from: Option<Version>, to: Version) -> Resu
         files_in,
         files_out: pack.len(),
     })
+}
+
+fn check_cancel(cancel: &AtomicBool) -> Result<()> {
+    if cancel.load(Ordering::Relaxed) {
+        Err(Error::Cancelled)
+    } else {
+        Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn official_paths() {
+        assert!(is_official("pack.mcmeta"));
+        assert!(is_official("assets/minecraft/textures/block/stone.png"));
+        assert!(!is_official("assets/minecraft/optifine/cit/a.properties"));
+        assert!(!is_official("assets/minecraft/mcpatcher/sky/world0/sky1.png"));
+        assert!(!is_official("assets/mymod/textures/item/x.png"));
+        assert!(!is_official("README.txt"));
+    }
+
+    #[test]
+    fn passes_unofficial_files_through_and_honours_cancel() {
+        let mut pack = Pack::new();
+        pack.insert("pack.mcmeta", br#"{"pack":{"pack_format":3,"description":""}}"#.to_vec());
+        pack.insert("assets/minecraft/mcpatcher/ctm/x.properties", b"matchBlocks=1".to_vec());
+        pack.insert("assets/mymod/textures/blocks/a.png", vec![1]);
+        convert_pack(&mut pack, None, Version::new(1, 16, 5), &AtomicBool::new(false)).unwrap();
+        assert_eq!(pack.get("assets/minecraft/mcpatcher/ctm/x.properties"), Some(&b"matchBlocks=1"[..]));
+        assert!(pack.contains("assets/mymod/textures/blocks/a.png"));
+
+        let err = convert_pack(&mut pack, None, Version::new(1, 8, 9), &AtomicBool::new(true));
+        assert!(matches!(err, Err(Error::Cancelled)));
+    }
 }

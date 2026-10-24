@@ -10,7 +10,8 @@ zip = { version = "9.1", default-features = false, features = ["deflate-flate2-z
 serde = { version = "1", features = ["derive"] }
 serde_json = { version = "1", features = ["preserve_order"] }
 thiserror = "2"
-image = { version = "0.25", default-features = false, features = ["png"] }
+image = { version = "0.25", default-features = false, features = ["png", "jpeg", "bmp", "gif", "webp"] }
+png = "0.18"
 rars = { version = "=0.12.1", default-features = false }
 
 [dev-dependencies]

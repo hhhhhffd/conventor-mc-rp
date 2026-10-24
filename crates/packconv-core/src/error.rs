@@ -22,6 +22,8 @@ pub enum Error {
     Image(String),
     #[error("unknown or unsupported version: {0}")]
     UnknownVersion(String),
+    #[error("conversion cancelled (time limit exceeded)")]
+    Cancelled,
     #[error("cannot detect source version, pass it explicitly")]
     UndetectedVersion,
 }

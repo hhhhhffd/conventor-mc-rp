@@ -75,7 +75,7 @@ async fn convert_handler(
     let Ok(_permit) = state.jobs.acquire().await else {
         return (StatusCode::SERVICE_UNAVAILABLE, "shutting down").into_response();
     };
-    let options = ConvertOptions { from: query.from, to: query.to, limits: state.limits };
+    let options = ConvertOptions { from: query.from, to: query.to, limits: state.limits, cancel: None };
     let result = tokio::task::spawn_blocking(move || convert(&body, &options)).await;
 
     match result {

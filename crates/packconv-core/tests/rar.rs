@@ -30,7 +30,7 @@ fn converts_rar_pack() {
     let rar = tiny_pack_rar();
     let out = convert(
         &rar,
-        &ConvertOptions { from: None, to: "1.16.5".into(), limits: Limits::default() },
+        &ConvertOptions { from: None, to: "1.16.5".into(), limits: Limits::default(), cancel: None },
     )
     .expect("RAR input is accepted");
 
@@ -48,7 +48,7 @@ fn converts_rar_pack() {
 fn rejects_garbage() {
     let result = convert(
         b"not an archive",
-        &ConvertOptions { from: None, to: "1.16.5".into(), limits: Limits::default() },
+        &ConvertOptions { from: None, to: "1.16.5".into(), limits: Limits::default(), cancel: None },
     );
     assert!(result.is_err());
 }

@@ -97,6 +97,18 @@ impl Pack {
         paths.len()
     }
 
+    /// Moves every file matching `pred` into a new pack.
+    pub fn split_off(&mut self, pred: impl Fn(&str) -> bool) -> Pack {
+        let (taken, kept) = std::mem::take(&mut self.files).into_iter().partition(|(k, _)| pred(k));
+        self.files = kept;
+        Pack { files: taken }
+    }
+
+    /// Adds all files of `other`, replacing files with the same path.
+    pub fn merge(&mut self, other: Pack) {
+        self.files.extend(other.files);
+    }
+
     /// Strips a single wrapping directory when the pack root (`pack.mcmeta`) is nested inside it,
     /// e.g. archives created by zipping the pack folder instead of its contents.
     pub fn strip_wrapping_dir(&mut self) {

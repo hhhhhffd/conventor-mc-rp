@@ -17,7 +17,7 @@ const TARGETS: [&str; 6] = ["1.7.10", "1.8.9", "1.12.2", "1.16.5", "1.20.1", "1.
 const MAX_REPORTED_PATHS: usize = 20;
 
 fn options(from: Option<&str>, to: &str) -> ConvertOptions {
-    ConvertOptions { from: from.map(String::from), to: to.into(), limits: Limits::default() }
+    ConvertOptions { from: from.map(String::from), to: to.into(), limits: Limits::default(), cancel: None }
 }
 
 fn run(input: &[u8], from: Option<&str>, to: &str) -> Result<ConvertOutput, String> {
