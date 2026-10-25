@@ -182,7 +182,7 @@ pub fn convert_pack(pack: &mut Pack, from: Option<Version>, to: Version, cancel:
 }
 
 /// Shaders are GLSL bound to one engine version's uniforms, vertex formats and file layout
-/// (they changed in 1.17, 1.21.2, 1.21.5, 1.21.6, 1.21.9, 26.1, 26.2...). Loaded on another
+/// (they changed in 1.17, 1.21.2, 1.21.5, 1.21.6, 1.21.9, 26.1, 26.2, 26.3...). Loaded on another
 /// version they fail to compile, which can crash the game or leave a black screen, and they
 /// cannot be converted mechanically. Removing them makes the game fall back to vanilla.
 fn strip_shaders(pack: &mut Pack, ctx: &mut Context) {
