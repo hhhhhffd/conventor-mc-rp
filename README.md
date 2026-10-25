@@ -62,6 +62,17 @@ const zip = res.zip;                  // Uint8Array
 const report = JSON.parse(res.report); // { from, to, steps, warnings, ... }
 ```
 
+## Плагин для лаунчера _k0t1k
+
+packconv подключается к лаунчеру _k0t1k как плагин (API v1) через GitHub Releases этого репозитория. В релизе лежат `plugin.json` (версия, sha256 файлов), `plugin.json.sig` (подпись Ed25519) и сборка wasm (`packconv_wasm.js`, `packconv_wasm_bg.wasm`). Версия берётся из `[workspace.package]` в `Cargo.toml`, тег — `v<версия>`.
+
+```sh
+# поднять version в Cargo.toml, закоммитить и запушить main, затем:
+scripts/release-plugin.sh
+```
+
+Ключ подписи — `$K0T1K_PLUGIN_KEY` (по умолчанию `~/.config/k0t1k/plugin-signing-key.pem`), в репозиторий он не попадает. Скрипт отказывается работать при грязном дереве, непушнутом HEAD, существующем теге или релизе и если подпись не сходится с публичным ключом лаунчера. Требуются `cargo`, `wasm-bindgen` 0.2.126, `openssl`, `gh`.
+
 ## Что конвертируется
 
 Каждая смена формата — отдельный шаг с `upgrade`/`downgrade` (`crates/packconv-core/src/steps/<эпоха>/`):
