@@ -103,3 +103,7 @@ scripts/e2e.sh <папка с паками>   # E2E на реальных пак
 ```
 
 Таблицы маппингов взяты из MIT-проектов, подробности в [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
+
+## Лицензия
+
+© 2026 hhhhhffd. Все права защищены, см. [LICENSE](LICENSE). Сторонние компоненты остаются под своими лицензиями (MIT), см. [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
