@@ -17,15 +17,14 @@
     <div class="wrap top-inner">
       <a class="logo" href="#"><span class="logo-block" aria-hidden="true"></span>packconv</a>
       <nav>
-        <a href="#tool">Converter</a>
         <a href="#features">Features</a>
         <a href="https://github.com/hhhhhffd/conventor-mc-rp" rel="noopener">GitHub</a>
       </nav>
     </div>
   </header>
 
-  <main>
-    <section class="hero wrap">
+  <main class="wrap layout">
+    <section class="intro">
       <p class="eyebrow mono">Minecraft Java Edition · 1.7.2 ↔ 26.3</p>
       <h1>Move any resource pack to any version.</h1>
       <p class="lead">
@@ -34,12 +33,11 @@
         It runs entirely in your browser. Your pack is never uploaded.
       </p>
       <div class="hero-actions">
-        <a class="btn primary" href="#tool">Convert a pack</a>
         <a class="btn ghost" href="https://github.com/hhhhhffd/conventor-mc-rp" rel="noopener">View source</a>
       </div>
     </section>
 
-    <section id="tool" class="wrap">
+    <aside id="tool" class="tool-col" aria-label="Converter">
       <div class="card tool">
         <div class="mode" role="tablist" aria-label="Mode">
           <button type="button" role="tab" class="mode-btn" data-mode="convert" aria-selected="true">Convert</button>
@@ -91,9 +89,9 @@
           </details>
         </div>
       </div>
-    </section>
+    </aside>
 
-    <section id="features" class="wrap features">
+    <section id="features" class="features">
       <article>
         <h3>Both directions</h3>
         <p>Every format change is an upgrade/downgrade pair, so a 26.3 pack can go back to 1.8.9 and an old PvP pack can go forward.</p>
@@ -119,10 +117,10 @@
         <p>The same core powers an HTTP microservice (axum) with job limits, queueing and timeouts for small hosts.</p>
       </article>
     </section>
-  </main>
 
-  <footer class="wrap foot">
-    <p>Built with Rust, wasm-bindgen and plain HTML. Not affiliated with Mojang or Microsoft.</p>
-  </footer>
+    <footer class="foot">
+      <p>Built with Rust, wasm-bindgen and plain HTML. Not affiliated with Mojang or Microsoft.</p>
+    </footer>
+  </main>
 </body>
 </html>
