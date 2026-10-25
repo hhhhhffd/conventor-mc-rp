@@ -52,6 +52,8 @@ curl --data-binary @pack.rar "http://localhost:8080/convert?to=26.3" -o out.zip
 
 ## wasm
 
+Веб-версия: <https://hhhhhffd.github.io/conventor-mc-rp/>. Её исходники лежат в `web/` (статичный HTML, конвертер крутится в Web Worker), а GitHub Actions собирает wasm и деплоит Pages при каждом пуше в `main`. Локальный запуск: `scripts/build-wasm.sh web && cp -r pkg web/pkg`, потом любой статический сервер из `web/`.
+
 ```js
 import init, { convert, repair, supportedVersions } from "./pkg/packconv_wasm.js";
 await init();

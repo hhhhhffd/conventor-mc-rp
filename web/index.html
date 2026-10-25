@@ -1,0 +1,128 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>packconv — Minecraft resource pack converter</title>
+  <meta name="description" content="Convert Minecraft Java resource packs between 1.7.2 and 26.3 in both directions, right in your browser. Rust compiled to WebAssembly.">
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 16 16%22%3E%3Crect width=%2216%22 height=%2216%22 rx=%222%22 fill=%22%237a5534%22/%3E%3Crect width=%2216%22 height=%225.5%22 rx=%222%22 fill=%22%236cc04a%22/%3E%3C/svg%3E">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="style.css">
+  <script type="module" src="app.js"></script>
+</head>
+<body>
+  <header class="top">
+    <div class="wrap top-inner">
+      <a class="logo" href="#"><span class="logo-block" aria-hidden="true"></span>packconv</a>
+      <nav>
+        <a href="#tool">Converter</a>
+        <a href="#features">Features</a>
+        <a href="https://github.com/hhhhhffd/conventor-mc-rp" rel="noopener">GitHub</a>
+      </nav>
+    </div>
+  </header>
+
+  <main>
+    <section class="hero wrap">
+      <p class="eyebrow mono">Minecraft Java Edition · 1.7.2 ↔ 26.3</p>
+      <h1>Move any resource pack to any version.</h1>
+      <p class="lead">
+        packconv upgrades and downgrades resource packs across twelve years of format changes:
+        renamed textures, sliced sprite sheets, new model formats and <code>pack.mcmeta</code> rules.
+        It runs entirely in your browser. Your pack is never uploaded.
+      </p>
+      <div class="hero-actions">
+        <a class="btn primary" href="#tool">Convert a pack</a>
+        <a class="btn ghost" href="https://github.com/hhhhhffd/conventor-mc-rp" rel="noopener">View source</a>
+      </div>
+    </section>
+
+    <section id="tool" class="wrap">
+      <div class="card tool">
+        <div class="mode" role="tablist" aria-label="Mode">
+          <button type="button" role="tab" class="mode-btn" data-mode="convert" aria-selected="true">Convert</button>
+          <button type="button" role="tab" class="mode-btn" data-mode="repair" aria-selected="false">Repair</button>
+        </div>
+
+        <label class="drop" id="drop">
+          <input type="file" id="file" accept=".zip,.rar,application/zip,application/vnd.rar" hidden>
+          <span class="drop-icon" aria-hidden="true"></span>
+          <span class="drop-title" id="drop-title">Drop a .zip or .rar pack here</span>
+          <span class="drop-hint" id="drop-hint">or click to choose a file</span>
+        </label>
+
+        <div class="fields" id="convert-fields">
+          <label>
+            <span>From</span>
+            <select id="from"><option value="">Auto-detect from pack.mcmeta</option></select>
+          </label>
+          <label>
+            <span>To</span>
+            <select id="to"></select>
+          </label>
+        </div>
+        <p class="mode-note" id="repair-note" hidden>
+          Repair re-encodes files that older versions tolerated but newer ones reject:
+          odd PNG encodings, JSON with comments or trailing commas, broken animations.
+          The pack version stays the same.
+        </p>
+
+        <button type="button" class="btn primary wide" id="run" disabled>Loading converter…</button>
+
+        <div class="status" id="status" role="status" aria-live="polite"></div>
+
+        <div class="result" id="result" hidden>
+          <div class="result-head">
+            <div>
+              <p class="result-title" id="result-title"></p>
+              <p class="result-meta mono" id="result-meta"></p>
+            </div>
+            <a class="btn primary" id="download">Download .zip</a>
+          </div>
+          <details id="steps-box">
+            <summary>Steps applied <span class="count" id="steps-count"></span></summary>
+            <ul class="list mono" id="steps"></ul>
+          </details>
+          <details id="warnings-box">
+            <summary>Warnings <span class="count" id="warnings-count"></span></summary>
+            <ul class="list" id="warnings"></ul>
+          </details>
+        </div>
+      </div>
+    </section>
+
+    <section id="features" class="wrap features">
+      <article>
+        <h3>Both directions</h3>
+        <p>Every format change is an upgrade/downgrade pair, so a 26.3 pack can go back to 1.8.9 and an old PvP pack can go forward.</p>
+      </article>
+      <article>
+        <h3>Private by design</h3>
+        <p>The converter is Rust compiled to WebAssembly and runs in a worker thread on your machine. Nothing leaves the page.</p>
+      </article>
+      <article>
+        <h3>ZIP and RAR</h3>
+        <p>Archives are unpacked in memory, including RAR 1.3, 4 and 5, with no external tools or C dependencies.</p>
+      </article>
+      <article>
+        <h3>Honest reports</h3>
+        <p>Anything that cannot be carried over exactly, like version-bound shaders, is listed as a warning instead of silently dropped.</p>
+      </article>
+      <article>
+        <h3>Mods pass through</h3>
+        <p>Only vanilla assets are touched. Mod namespaces, OptiFine and MCPatcher folders are kept byte for byte.</p>
+      </article>
+      <article>
+        <h3>Also a server</h3>
+        <p>The same core powers an HTTP microservice (axum) with job limits, queueing and timeouts for small hosts.</p>
+      </article>
+    </section>
+  </main>
+
+  <footer class="wrap foot">
+    <p>Built with Rust, wasm-bindgen and plain HTML. Not affiliated with Mojang or Microsoft.</p>
+  </footer>
+</body>
+</html>
