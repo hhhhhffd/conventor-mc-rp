@@ -65,17 +65,19 @@ nav { display: flex; gap: 22px; }
 nav a { color: var(--muted); text-decoration: none; font-size: 15px; }
 nav a:hover { color: var(--text); }
 
-/* Layout: the converter stays in view; the intro and features scroll beside it. */
+/* Layout: the converter stays in view; the intro and features scroll beside it. The card is
+   sticky within the whole grid, so its max height also leaves room for the footer row. */
 .layout {
   display: grid;
   grid-template-columns: minmax(0, 1fr) minmax(0, 460px);
-  grid-template-areas: "intro tool" "features tool" "foot tool";
+  grid-template-areas: "intro tool" "features tool" "foot foot";
   column-gap: 56px;
   align-items: start;
   padding-top: 56px;
 }
 .intro { grid-area: intro; padding-top: 8px; }
-.tool-col { grid-area: tool; position: sticky; top: 84px; max-height: calc(100vh - 108px); overflow-y: auto; border-radius: var(--radius); }
+.tool-col { grid-area: tool; position: sticky; top: 84px; }
+.tool-col .tool { max-height: calc(100vh - 184px); overflow-y: auto; scrollbar-width: thin; }
 
 /* Hero */
 .eyebrow { color: var(--accent); font-size: 13px; margin: 0 0 16px; }
@@ -154,17 +156,22 @@ summary { cursor: pointer; font-weight: 600; font-size: 14px; }
 .list li + li { margin-top: 4px; }
 
 /* Features */
-.features { grid-area: features; display: grid; grid-template-columns: repeat(2, 1fr); gap: 14px; padding-top: 48px; }
+.features { grid-area: features; display: grid; grid-template-columns: repeat(2, 1fr); gap: 14px; padding-top: 48px; padding-bottom: 24px; }
 .features article { padding: 20px; border: 1px solid var(--border); border-radius: var(--radius); }
 .features h3 { margin: 0 0 6px; font-size: 16px; }
 .features p { margin: 0; color: var(--muted); font-size: 14px; }
 
-.foot { grid-area: foot; margin-top: 48px; border-top: 1px solid var(--border); padding-top: 16px; padding-bottom: 40px; color: var(--muted); font-size: 13px; }
-.foot p { margin: 8px 0 0; }
+.foot {
+  grid-area: foot; display: flex; justify-content: space-between; align-items: baseline; gap: 8px 24px; flex-wrap: wrap;
+  margin-top: 24px; border-top: 1px solid var(--border); padding: 16px 0 24px; color: var(--muted); font-size: 13px;
+}
+.foot p { margin: 0; }
+.foot p:last-child { white-space: nowrap; }
 
 @media (max-width: 900px) {
   .layout { grid-template-columns: 1fr; grid-template-areas: "intro" "tool" "features" "foot"; padding-top: 32px; }
-  .tool-col { position: static; max-height: none; overflow: visible; margin-top: 8px; }
+  .tool-col { position: static; margin-top: 8px; }
+  .tool-col .tool { max-height: none; overflow: visible; }
   h1 { max-width: none; }
 }
 
