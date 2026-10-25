@@ -29,6 +29,16 @@ jobs:
           tool: wasm-bindgen@0.2.126
       - run: scripts/build-wasm.sh web
       - run: cp -r pkg web/pkg
+      # Pages serves files with max-age=600; versioned URLs make browsers fetch a new deploy at once.
+      - run: |
+          v="?v=${GITHUB_SHA::8}"
+          sed -i "s|href=\"style.css\"|href=\"style.css$v\"|; s|src=\"app.js\"|src=\"app.js$v\"|" web/index.html
+          sed -i "s|\"./worker.js\"|\"./worker.js$v\"|" web/app.js
+          sed -i "s|\"./pkg/packconv_wasm.js\"|\"./pkg/packconv_wasm.js$v\"|" web/worker.js
+          sed -i "s|'packconv_wasm_bg.wasm'|'packconv_wasm_bg.wasm$v'|" web/pkg/packconv_wasm.js
+          for f in web/index.html web/app.js web/worker.js web/pkg/packconv_wasm.js; do
+            grep -qF "$v" "$f" || { echo "no versioned URL in $f"; exit 1; }
+          done
       - uses: actions/upload-pages-artifact@v3
         with:
           path: web
