@@ -1,120 +1,85 @@
-# packconv
+<div align="center">
 
-Конвертер ресурспаков Minecraft Java Edition между версиями **1.7.2 ↔ 26.3** в обе стороны, плюс режим **ремонта** криво сохранённых файлов. Это чистый Rust: ZIP и RAR (1.3/4/5) распаковываются в памяти без внешних программ и C-зависимостей. Код один для двух режимов:
+<h1>packconv</h1>
+<hr>
 
-- **`packconv`**: HTTP-сервер (axum) для бэкенда;
-- **`pkg/`**: wasm-модуль для браузера, пак никуда не загружается.
+**Minecraft resource pack converter in one codebase: HTTP server, in-browser WebAssembly, pack repair**
 
-## Сборка
+![Rust](https://img.shields.io/badge/RUST-2021-DEA584?style=flat-square&logo=rust&logoColor=white)
+![WebAssembly](https://img.shields.io/badge/WEBASSEMBLY-wasm--bindgen%200.2.126-654FF0?style=flat-square&logo=webassembly&logoColor=white)
+![Axum](https://img.shields.io/badge/AXUM-0.8-000000?style=flat-square)
+[![Pages](https://img.shields.io/github/actions/workflow/status/hhhhhffd/conventor-mc-rp/pages.yml?style=flat-square&label=PAGES)](https://github.com/hhhhhffd/conventor-mc-rp/actions/workflows/pages.yml)
+[![License](https://img.shields.io/github/license/hhhhhffd/conventor-mc-rp?style=flat-square)](LICENSE)
 
-```sh
-cargo build --release -p packconv-server   # бинарь target/release/packconv
-scripts/build-wasm.sh [web|bundler|nodejs] # wasm + JS-обвязка в ./pkg (нужен wasm-bindgen CLI 0.2.126)
-```
+[Website](https://hhhhhffd.github.io/conventor-mc-rp/) · [Stack](#technical-stack) · [Quick start](#quick-start)
 
-## HTTP API
+</div>
 
-| Метод | Путь | Тело | Ответ |
-|---|---|---|---|
-| `GET` | `/health` | — | `ok` |
-| `GET` | `/versions` | — | JSON-массив поддерживаемых версий |
-| `POST` | `/convert?to=<версия>[&from=<версия>]` | ZIP/RAR как есть | ZIP; сводка в заголовке `x-packconv-report` |
-| `POST` | `/repair` | ZIP/RAR как есть | ZIP; сводка в заголовке `x-packconv-report` |
+## What it is
 
-Если `from` не передан, исходная версия определяется по `pack.mcmeta`. Когда целевая версия уже входит в заявленный паком диапазон форматов, меняется только `pack.mcmeta`.
+packconv converts Minecraft Java Edition resource packs between versions 1.7.2 and 26.3, in both directions. It also has a repair mode for badly saved files (PNG, JSON, animations) that old versions tolerated and new ones may reject.
 
-Коды ошибок:
+It is pure Rust: ZIP and RAR (1.3, 4, 5) archives are unpacked in memory, with no external programs and no C dependencies. The same core runs as an axum HTTP server and as a WebAssembly module in the browser, where the pack is never uploaded.
 
-| Код | Когда |
+## Technical Stack
+
+| Layer | Technology |
 |---|---|
-| `413` | тело больше лимита |
-| `422` | плохой архив или версия (JSON `{"error": ...}`) |
-| `429` | очередь заполнена |
-| `504` | таймаут, задача отменяется |
+| Core | Rust 2021, crate `packconv-core` (`zip`, `image`, `png`, `rars`, `serde_json`) |
+| Server | `packconv-server`: axum 0.8, tokio |
+| Browser | `packconv-wasm`: wasm-bindgen 0.2.126, static HTML in `web/`, converter runs in a Web Worker |
+| CI/CD | GitHub Actions builds the wasm and deploys GitHub Pages on every push to `main` |
 
-```sh
+## Quick start
+
+```bash
+cargo build --release -p packconv-server    # binary: target/release/packconv
+target/release/packconv                     # listens on 0.0.0.0:8080
 curl --data-binary @pack.rar "http://localhost:8080/convert?to=26.3" -o out.zip
 ```
 
-### Переменные окружения
+Browser build (needs the `wasm-bindgen` CLI 0.2.126):
 
-Дефолты рассчитаны на маленький VPS с одним ядром.
-
-| Переменная | По умолчанию | |
-|---|---|---|
-| `PACKCONV_ADDR` | `0.0.0.0:8080` | адрес |
-| `PACKCONV_MAX_JOBS` | `1` | одновременных конвертаций |
-| `PACKCONV_MAX_QUEUE` | `4 × jobs` | запросов в очереди, дальше `429` |
-| `PACKCONV_MAX_UPLOAD` | 128 MiB | размер тела |
-| `PACKCONV_MAX_UNPACKED` | 512 MiB | суммарный распакованный размер |
-| `PACKCONV_MAX_ENTRIES` | 100 000 | файлов в архиве |
-| `PACKCONV_TIMEOUT_SECS` | 300 | таймаут задачи |
-
-## wasm
-
-Веб-версия: <https://hhhhhffd.github.io/conventor-mc-rp/>. Её исходники лежат в `web/` (статичный HTML, конвертер крутится в Web Worker), а GitHub Actions собирает wasm и деплоит Pages при каждом пуше в `main`. Локальный запуск: `scripts/build-wasm.sh web && cp -r pkg web/pkg`, потом любой статический сервер из `web/`.
-
-```js
-import init, { convert, repair, supportedVersions } from "./pkg/packconv_wasm.js";
-await init();
-const res = convert(new Uint8Array(await file.arrayBuffer()), "1.21.4"); // from — третьим аргументом, опционально
-const zip = res.zip;                  // Uint8Array
-const report = JSON.parse(res.report); // { from, to, steps, warnings, ... }
+```bash
+scripts/build-wasm.sh web && cp -r pkg web/pkg   # then serve web/ with any static server
 ```
 
-## Плагин для лаунчера _k0t1k
+Tests:
 
-packconv подключается к лаунчеру _k0t1k как плагин (API v1) через GitHub Releases этого репозитория. В релизе лежат `plugin.json` (версия, sha256 файлов), `plugin.json.sig` (подпись Ed25519) и сборка wasm (`packconv_wasm.js`, `packconv_wasm_bg.wasm`). Версия берётся из `[workspace.package]` в `Cargo.toml`, тег — `v<версия>`.
-
-```sh
-# поднять version в Cargo.toml, закоммитить и запушить main, затем:
-scripts/release-plugin.sh
-```
-
-Ключ подписи — `$K0T1K_PLUGIN_KEY` (по умолчанию `~/.config/k0t1k/plugin-signing-key.pem`), в репозиторий он не попадает. Скрипт отказывается работать при грязном дереве, непушнутом HEAD, существующем теге или релизе и если подпись не сходится с публичным ключом лаунчера. Требуются `cargo`, `wasm-bindgen` 0.2.126, `openssl`, `gh`.
-
-## Что конвертируется
-
-Каждая смена формата — отдельный шаг с `upgrade`/`downgrade` (`crates/packconv-core/src/steps/<эпоха>/`):
-
-| Эпоха | Версии | Что делает |
-|---|---|---|
-| `legacy` | 1.8–1.12 | модели, display, компас/часы, off-hand, lang |
-| `flattening` | 1.13 | переименования, `.lang` ↔ `.json`, blockstates |
-| `mid` | 1.14–1.19.4 | нарезка картин, частиц и эффектов, сундуки, атласы, вкладки |
-| `modern` | 1.20–1.21.8 | GUI-спрайты 1.20.2, карты, броня 1.21.2, `items/` 1.21.4 |
-| `yearly` | 1.21.9–26.3 | iron_chain, небесные тела, папки сущностей 26.1, кровати и таблички 26.2, палитры тримов, `shade` моделей и карты 26.3 |
-
-Всё, что не удаётся перенести без потерь, попадает в `warnings` отчёта.
-
-Обрабатываются только официальные ассеты: `pack.mcmeta`, `pack.png`, `assets/minecraft/`, `assets/realms/`. Папки `optifine/` и `mcpatcher/`, неймспейсы модов и всё вне `assets/` проходят насквозь без изменений.
-
-## Ремонт
-
-Ремонт перекодирует то, что старые версии прощали, а новые могут не прочитать, не меняя версию пака:
-
-- **PNG:** 16-bit, палитра, grayscale, interlace, лишние чанки (iCCP, текст, APNG), битые CRC, мусор после IEND, а также JPEG/GIF/BMP/WebP под именем `.png`. Всё приводится к 8-bit RGBA.
-- **JSON и `.mcmeta`:** BOM, комментарии, висячие запятые, мусор в конце.
-- **Анимации:** `frametime <= 0` и индексы кадров вне ленты.
-
-Огромные анимированные текстуры (например, 664×100000) перекодируются построчно, без загрузки всей картинки в память. Чистые файлы остаются байт-в-байт.
-
-## Ограничения
-
-- Шейдеры (`shaders/`, `post_effect/`) привязаны к версии движка и на другой версии могут крашнуть игру, поэтому при смене версии они удаляются с предупреждением, а игра откатывается на ванильные. Если целевая версия совпадает с исходной, шейдеры сохраняются.
-- Конвертация 26.3 пока не поддерживается.
-- Некоторые даунгрейды теряют данные, которых нет в старой версии. Они перечислены в `warnings`.
-- Внутри одного шага отмена не срабатывает: она проверяется между шагами.
-
-## Тесты
-
-```sh
+```bash
 cargo test -p packconv-core
-scripts/e2e.sh <папка с паками>   # E2E на реальных паках
+scripts/e2e.sh <directory with packs>            # end-to-end run on real packs
 ```
 
-Таблицы маппингов взяты из MIT-проектов, подробности в [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
+<details>
+<summary>HTTP API and configuration</summary>
 
-## Лицензия
+| Method | Path | Body | Response |
+|---|---|---|---|
+| `GET` | `/health` | none | `ok` |
+| `GET` | `/versions` | none | JSON array of supported versions |
+| `POST` | `/convert?to=<version>[&from=<version>]` | ZIP or RAR as is | ZIP; summary in the `x-packconv-report` header |
+| `POST` | `/repair` | ZIP or RAR as is | ZIP; summary in the `x-packconv-report` header |
 
-© 2026 hhhhhffd. Все права защищены, см. [LICENSE](LICENSE). Сторонние компоненты остаются под своими лицензиями (MIT), см. [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
+If `from` is omitted, the source version is detected from `pack.mcmeta`. Errors: `413` body over the limit, `422` bad archive or version, `429` queue full, `504` job timed out.
+
+| Variable | Default | Purpose |
+|---|---|---|
+| `PACKCONV_ADDR` | `0.0.0.0:8080` | listen address |
+| `PACKCONV_MAX_JOBS` | `1` | concurrent conversions |
+| `PACKCONV_MAX_QUEUE` | `4 x jobs` | queued requests before `429` |
+| `PACKCONV_MAX_UPLOAD` | 128 MiB | request body size |
+| `PACKCONV_MAX_UNPACKED` | 512 MiB | total unpacked size |
+| `PACKCONV_MAX_ENTRIES` | 100 000 | files per archive |
+| `PACKCONV_TIMEOUT_SECS` | 300 | job timeout |
+
+> [!NOTE]
+> Defaults target a small single-core VPS. Cancellation is checked between conversion steps, not inside one.
+
+Conversion limits: shaders (`shaders/`, `post_effect/`) are tied to the engine version and are removed with a warning when the version changes. Conversions that cannot keep data are listed in the `warnings` field of the report. Only vanilla assets are processed (`pack.mcmeta`, `pack.png`, `assets/minecraft/`, `assets/realms/`); everything else passes through unchanged.
+
+</details>
+
+## License
+
+Licensed under [AGPL-3.0](LICENSE), copyright 2026 hhhhhffd. Mapping tables from MIT-licensed projects keep their own licenses, see [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
