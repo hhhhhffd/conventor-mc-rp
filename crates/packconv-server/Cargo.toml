@@ -2,7 +2,7 @@
 name = "packconv-server"
 version.workspace = true
 edition.workspace = true
-license-file.workspace = true
+license.workspace = true
 
 [[bin]]
 name = "packconv"

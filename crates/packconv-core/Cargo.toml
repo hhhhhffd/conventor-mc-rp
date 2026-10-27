@@ -2,7 +2,7 @@
 name = "packconv-core"
 version.workspace = true
 edition.workspace = true
-license-file.workspace = true
+license.workspace = true
 description = "Minecraft Java resource pack converter (any version 1.8 - 26.3, both directions)"
 
 [dependencies]
